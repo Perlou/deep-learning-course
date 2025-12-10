@@ -1,0 +1,48 @@
+# 忽略大型数据集
+data/*.csv
+data/*.json
+data/*.zip
+data/*.tar.gz
+!data/README.md
+
+# 模型文件
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.safetensors
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 日志和输出
+logs/
+outputs/
+runs/
+wandb/
+
+# 临时文件
+*.tmp
+*.temp
