@@ -63,18 +63,18 @@ output = F(x) + x  # 跳跃连接
 
 | 文件                          | 描述               | 状态 |
 | ----------------------------- | ------------------ | ---- |
-| `01-convolution-basics.py`    | 卷积核、步长、填充 | ⏳   |
-| `02-pooling-layers.py`        | 池化操作           | ⏳   |
-| `03-receptive-field.py`       | 感受野计算         | ⏳   |
-| `04-lenet.py`                 | LeNet 实现         | ⏳   |
-| `05-alexnet.py`               | AlexNet 架构       | ⏳   |
-| `06-vggnet.py`                | VGG 深度网络       | ⏳   |
-| `07-resnet.py`                | ResNet 及残差连接  | ⏳   |
-| `08-resnet-variants.py`       | ResNet18/34/50/101 | ⏳   |
-| `09-mobilenet.py`             | MobileNet 轻量化   | ⏳   |
-| `10-efficientnet.py`          | EfficientNet       | ⏳   |
-| `11-feature-visualization.py` | 特征图可视化       | ⏳   |
-| `12-grad-cam.py`              | Grad-CAM 热力图    | ⏳   |
+| `01-convolution-basics.py`    | 卷积核、步长、填充 | ✅   |
+| `02-pooling-layers.py`        | 池化操作           | ✅   |
+| `03-receptive-field.py`       | 感受野计算         | ✅   |
+| `04-lenet.py`                 | LeNet 实现         | ✅   |
+| `05-alexnet.py`               | AlexNet 架构       | ✅   |
+| `06-vggnet.py`                | VGG 深度网络       | ✅   |
+| `07-resnet.py`                | ResNet 及残差连接  | ✅   |
+| `08-resnet-variants.py`       | ResNet18/34/50/101 | ✅   |
+| `09-mobilenet.py`             | MobileNet 轻量化   | ✅   |
+| `10-efficientnet.py`          | EfficientNet       | ✅   |
+| `11-feature-visualization.py` | 特征图可视化       | ✅   |
+| `12-grad-cam.py`              | Grad-CAM 热力图    | ✅   |
 
 ---
 
