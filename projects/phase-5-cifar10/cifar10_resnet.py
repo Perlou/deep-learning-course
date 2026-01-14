@@ -36,14 +36,14 @@ print("=" * 60)
 class Config:
     # 数据
     data_dir = "./data"
-    batch_size = 128
+    batch_size = 256  # 增大批次加速训练
     num_workers = 0  # macOS 兼容
 
     # 模型
     num_classes = 10
 
     # 训练
-    num_epochs = 100
+    num_epochs = 20  # MPS/CPU优化：减少epochs（GPU可设100）
     learning_rate = 0.1
     momentum = 0.9
     weight_decay = 5e-4

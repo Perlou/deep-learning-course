@@ -57,15 +57,15 @@ y_t = W_hy @ h_t + b_y
 
 | 文件                       | 描述               | 状态 |
 | -------------------------- | ------------------ | ---- |
-| `01-rnn-basics.py`         | RNN 结构与前向传播 | ⏳   |
-| `02-bptt.py`               | 时间反向传播       | ⏳   |
-| `03-vanishing-gradient.py` | 梯度消失问题       | ⏳   |
-| `04-lstm.py`               | LSTM 门控机制      | ⏳   |
-| `05-gru.py`                | GRU 简化结构       | ⏳   |
-| `06-bidirectional.py`      | 双向 RNN           | ⏳   |
-| `07-seq2seq.py`            | 序列到序列模型     | ⏳   |
-| `08-attention-basic.py`    | 基础注意力机制     | ⏳   |
-| `09-time-series.py`        | 时间序列预测       | ⏳   |
+| `01-rnn-basics.py`         | RNN 结构与前向传播 | ✅   |
+| `02-bptt.py`               | 时间反向传播       | ✅   |
+| `03-vanishing-gradient.py` | 梯度消失问题       | ✅   |
+| `04-lstm.py`               | LSTM 门控机制      | ✅   |
+| `05-gru.py`                | GRU 简化结构       | ✅   |
+| `06-bidirectional.py`      | 双向 RNN           | ✅   |
+| `07-seq2seq.py`            | 序列到序列模型     | ✅   |
+| `08-attention-basic.py`    | 基础注意力机制     | ✅   |
+| `09-time-series.py`        | 时间序列预测       | ✅   |
 
 ---
 
