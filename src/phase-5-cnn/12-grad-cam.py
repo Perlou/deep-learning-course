@@ -3,6 +3,7 @@
 
 本节学习: 使用 Grad-CAM 理解 CNN 的决策依据
 """
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,6 +34,7 @@ print("""
 - 支持任意 CNN 架构
 """)
 
+
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
@@ -40,48 +42,52 @@ class GradCAM:
         self.gradients = None
         self.activations = None
         self._register_hooks()
-    
+
     def _register_hooks(self):
         def forward_hook(module, input, output):
             self.activations = output.detach()
-        
+
         def backward_hook(module, grad_input, grad_output):
             self.gradients = grad_output[0].detach()
-        
+
         self.target_layer.register_forward_hook(forward_hook)
         self.target_layer.register_full_backward_hook(backward_hook)
-    
+
     def generate(self, input_tensor, target_class=None):
         self.model.eval()
         output = self.model(input_tensor)
-        
+
         if target_class is None:
             target_class = output.argmax(dim=1).item()
-        
+
         self.model.zero_grad()
         output[0, target_class].backward()
-        
+
         # 计算通道权重
         weights = self.gradients.mean(dim=(2, 3), keepdim=True)
-        
+
         # 加权求和
         cam = (weights * self.activations).sum(dim=1, keepdim=True)
         cam = F.relu(cam)
-        
+
         # 归一化
         cam = cam - cam.min()
         cam = cam / (cam.max() + 1e-8)
-        
+
         # 上采样到原图尺寸
-        cam = F.interpolate(cam, input_tensor.shape[2:], mode='bilinear', align_corners=False)
-        
+        cam = F.interpolate(
+            cam, input_tensor.shape[2:], mode="bilinear", align_corners=False
+        )
+
         return cam.squeeze().cpu().numpy(), target_class
+
 
 def apply_colormap(cam, img_array):
     """将 CAM 叠加到原图上"""
     heatmap = plt.cm.jet(cam)[:, :, :3]
     result = heatmap * 0.4 + img_array * 0.6
     return np.clip(result, 0, 1)
+
 
 # 使用示例
 model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
@@ -96,6 +102,36 @@ x = torch.randn(1, 3, 224, 224)
 cam, pred_class = gradcam.generate(x)
 print(f"预测类别: {pred_class}")
 print(f"CAM 形状: {cam.shape}")
+
+transform = transforms.Compose(
+    [
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ]
+)
+img = Image.open("avatar.jpg")
+input_tensor = transform(img).unsqueeze(0)
+
+# 2. 生成 Grad-CAM
+cam, pred_class = gradcam.generate(input_tensor)
+
+# 3. 可视化
+img_array = np.array(img.resize((224, 224))) / 255.0
+result = apply_colormap(cam, img_array)
+
+plt.figure(figsize=(12, 4))
+plt.subplot(131)
+plt.imshow(img_array)
+plt.title("Original")
+plt.subplot(132)
+plt.imshow(cam, cmap="jet")
+plt.title("Grad-CAM")
+plt.subplot(133)
+plt.imshow(result)
+plt.title("Overlay")
+plt.savefig("gradcam_result.png")
 
 print("""
 📌 完整使用示例:

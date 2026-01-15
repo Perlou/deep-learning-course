@@ -61,16 +61,16 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d))
 
 | 文件                         | 描述             | 状态 |
 | ---------------------------- | ---------------- | ---- |
-| `01-self-attention.py`       | 自注意力从零实现 | ⏳   |
-| `02-multi-head-attention.py` | 多头注意力       | ⏳   |
-| `03-positional-encoding.py`  | 位置编码         | ⏳   |
-| `04-transformer-encoder.py`  | 编码器实现       | ⏳   |
-| `05-transformer-decoder.py`  | 解码器实现       | ⏳   |
-| `06-transformer-full.py`     | 完整 Transformer | ⏳   |
-| `07-bert-architecture.py`    | BERT 结构理解    | ⏳   |
-| `08-bert-finetuning.py`      | BERT 微调实践    | ⏳   |
-| `09-gpt-architecture.py`     | GPT 架构         | ⏳   |
-| `10-gpt-generation.py`       | 文本生成         | ⏳   |
+| `01-self-attention.py`       | 自注意力从零实现 | ✅   |
+| `02-multi-head-attention.py` | 多头注意力       | ✅   |
+| `03-positional-encoding.py`  | 位置编码         | ✅   |
+| `04-transformer-encoder.py`  | 编码器实现       | ✅   |
+| `05-transformer-decoder.py`  | 解码器实现       | ✅   |
+| `06-transformer-full.py`     | 完整 Transformer | ✅   |
+| `07-bert-architecture.py`    | BERT 结构理解    | ✅   |
+| `08-bert-finetuning.py`      | BERT 微调实践    | ✅   |
+| `09-gpt-architecture.py`     | GPT 架构         | ✅   |
+| `10-gpt-generation.py`       | 文本生成         | ✅   |
 
 ---
 
