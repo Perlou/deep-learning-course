@@ -48,14 +48,14 @@
 
 | 文件                          | 描述         | 状态 |
 | ----------------------------- | ------------ | ---- |
-| `01-detection-basics.py`      | 检测任务概述 | ⏳   |
-| `02-yolo-v8.py`               | YOLO 系列    | ⏳   |
-| `03-rcnn-family.py`           | R-CNN 系列   | ⏳   |
-| `04-semantic-segmentation.py` | 语义分割     | ⏳   |
-| `05-unet.py`                  | U-Net 架构   | ⏳   |
-| `06-instance-segmentation.py` | 实例分割     | ⏳   |
-| `07-pose-estimation.py`       | 姿态估计     | ⏳   |
-| `08-face-recognition.py`      | 人脸识别     | ⏳   |
+| `01-detection-basics.py`      | 检测任务概述 | ✅   |
+| `02-yolo-v8.py`               | YOLO 系列    | ✅   |
+| `03-rcnn-family.py`           | R-CNN 系列   | ✅   |
+| `04-semantic-segmentation.py` | 语义分割     | ✅   |
+| `05-unet.py`                  | U-Net 架构   | ✅   |
+| `06-instance-segmentation.py` | 实例分割     | ✅   |
+| `07-pose-estimation.py`       | 姿态估计     | ✅   |
+| `08-face-recognition.py`      | 人脸识别     | ✅   |
 
 ---
 
