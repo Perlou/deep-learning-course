@@ -543,7 +543,7 @@ def exercises():
     print("练习与思考")
     print("=" * 60)
 
-    print("""
+    exercises_text = """
 练习 1：IoU 计算
     实现批量计算 IoU 的函数:
     def batch_iou(boxes1, boxes2):
@@ -554,10 +554,76 @@ def exercises():
         '''
         pass
 
+练习 1 答案：
+    def batch_iou(boxes1, boxes2):
+        '''批量计算 IoU'''
+        # boxes1: [N, 4], boxes2: [M, 4]
+        N, M = boxes1.shape[0], boxes2.shape[0]
+        
+        # 扩展维度以便广播 [N, 1, 4] 和 [1, M, 4]
+        boxes1 = boxes1.unsqueeze(1)  # [N, 1, 4]
+        boxes2 = boxes2.unsqueeze(0)  # [1, M, 4]
+        
+        # 计算交集
+        x1 = torch.max(boxes1[..., 0], boxes2[..., 0])
+        y1 = torch.max(boxes1[..., 1], boxes2[..., 1])
+        x2 = torch.min(boxes1[..., 2], boxes2[..., 2])
+        y2 = torch.min(boxes1[..., 3], boxes2[..., 3])
+        
+        intersection = torch.clamp(x2 - x1, min=0) * torch.clamp(y2 - y1, min=0)
+        
+        # 计算各自面积
+        area1 = (boxes1[..., 2] - boxes1[..., 0]) * (boxes1[..., 3] - boxes1[..., 1])
+        area2 = (boxes2[..., 2] - boxes2[..., 0]) * (boxes2[..., 3] - boxes2[..., 1])
+        
+        union = area1 + area2 - intersection
+        iou = intersection / (union + 1e-6)
+        
+        return iou  # [N, M]
+
 练习 2：NMS 变体
     实现 Soft-NMS:
     - 不是直接删除重叠框
     - 而是降低重叠框的置信度分数
+
+练习 2 答案：
+    def soft_nms(boxes, scores, sigma=0.5, score_threshold=0.001):
+        '''
+        Soft-NMS: 使用高斯函数降低重叠框的分数
+        score_new = score * exp(-iou^2 / sigma)
+        '''
+        boxes = np.array(boxes)
+        scores = np.array(scores)
+        indices = np.arange(len(boxes))
+        
+        keep = []
+        while len(indices) > 0:
+            # 找最高分
+            max_idx = np.argmax(scores[indices])
+            max_pos = indices[max_idx]
+            keep.append(max_pos)
+            
+            # 移除当前最高分的框
+            indices = np.delete(indices, max_idx)
+            
+            if len(indices) == 0:
+                break
+            
+            # 计算与其他框的 IoU
+            current_box = boxes[max_pos]
+            other_boxes = boxes[indices]
+            
+            # 计算 IoU (省略详细代码)
+            ious = calculate_batch_iou(current_box, other_boxes)
+            
+            # Soft-NMS: 降低分数而非删除
+            scores[indices] = scores[indices] * np.exp(-ious**2 / sigma)
+            
+            # 移除分数过低的框
+            valid = scores[indices] > score_threshold
+            indices = indices[valid]
+        
+        return keep
 
 练习 3：Anchor 匹配
     实现将真实框与 Anchor 匹配的函数:
@@ -565,21 +631,141 @@ def exercises():
     - IoU < 0.3: 负样本
     - 其他: 忽略
 
+练习 3 答案：
+    def match_anchors(anchors, gt_boxes, pos_threshold=0.7, neg_threshold=0.3):
+        '''
+        返回:
+            labels: 1=正样本, 0=负样本, -1=忽略
+            matched_gt: 每个 anchor 匹配的 gt 索引
+        '''
+        # 计算 IoU 矩阵 [num_anchors, num_gt]
+        iou_matrix = batch_iou(anchors, gt_boxes)
+        
+        # 每个 anchor 的最大 IoU
+        max_iou, matched_gt = iou_matrix.max(dim=1)
+        
+        # 初始化标签为忽略
+        labels = torch.full((len(anchors),), -1, dtype=torch.int64)
+        
+        # 负样本: IoU < 0.3
+        labels[max_iou < neg_threshold] = 0
+        
+        # 正样本: IoU > 0.7
+        labels[max_iou >= pos_threshold] = 1
+        
+        # 确保每个 gt 至少匹配一个 anchor (最大 IoU)
+        gt_max_iou, gt_matched_anchor = iou_matrix.max(dim=0)
+        labels[gt_matched_anchor] = 1
+        matched_gt[gt_matched_anchor] = torch.arange(len(gt_boxes))
+        
+        return labels, matched_gt
+
 练习 4：可视化检测结果
     编写函数在图像上绘制检测框:
     - 显示类别名称
     - 显示置信度分数
     - 不同类别使用不同颜色
 
+练习 4 答案：
+    def visualize_detections(image, boxes, labels, scores, class_names):
+        '''可视化检测结果'''
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        
+        fig, ax = plt.subplots(1, figsize=(12, 8))
+        ax.imshow(image)
+        
+        # 为每个类别分配颜色
+        colors = plt.cm.tab10(np.linspace(0, 1, len(class_names)))
+        
+        for box, label, score in zip(boxes, labels, scores):
+            if score < 0.5:  # 阈值过滤
+                continue
+            
+            x1, y1, x2, y2 = box
+            color = colors[label]
+            
+            # 绘制边界框
+            rect = patches.Rectangle((x1, y1), x2-x1, y2-y1,
+                                      linewidth=2, edgecolor=color,
+                                      facecolor='none')
+            ax.add_patch(rect)
+            
+            # 显示类别和分数
+            ax.text(x1, y1-5, f'{class_names[label]}: {score:.2f}',
+                    color='white', fontsize=10,
+                    bbox=dict(facecolor=color, alpha=0.8))
+        
+        ax.axis('off')
+        return fig
+
 思考题 1：为什么需要 NMS？
     有没有不用 NMS 的方法？
+
+思考题 1 答案：
+    为什么需要 NMS：
+    - 检测器在物体周围会产生多个重叠的检测框
+    - 每个框都有不同的置信度分数
+    - 需要去除冗余，只保留最佳的检测结果
+    
+    不用 NMS 的方法：
+    1. DETR (Detection Transformer):
+       - 使用 Transformer 和二分图匹配
+       - 直接输出固定数量的预测，无需后处理
+    2. CenterNet:
+       - 预测物体中心点，天然避免多个检测
+    3. CornerNet/FCOS:
+       - 使用关键点或中心性预测减少重复
+    4. Soft-NMS:
+       - 不直接删除，而是降低分数
 
 思考题 2：Anchor 的数量如何影响检测效果？
     太多或太少会怎样？
 
+思考题 2 答案：
+    Anchor 太少：
+    - 可能无法覆盖所有物体的形状和尺度
+    - 召回率下降，漏检增加
+    - 对于不规则形状的物体检测效果差
+    
+    Anchor 太多：
+    - 计算量显著增加，推理速度变慢
+    - 正负样本严重不平衡（负样本占绝大多数）
+    - 需要更复杂的采样策略
+    - 可能引入更多误检
+    
+    最佳实践：
+    - 根据数据集的物体尺度分布设计 Anchor
+    - 常用配置: 3 种尺度 × 3 种比例 = 9 个 Anchor
+    - 或使用 Anchor-Free 方法避免此问题
+
 思考题 3：IoU 有什么局限性？
     GIoU, DIoU, CIoU 是如何改进的？
-    """)
+
+思考题 3 答案：
+    IoU 的局限性：
+    - 当两个框不重叠时，IoU = 0，无法提供梯度
+    - 无法反映两个框的距离（同样 IoU=0，距离可能不同）
+    - 对框的尺寸和形状变化不敏感
+    
+    GIoU (Generalized IoU):
+    - GIoU = IoU - (C - Union) / C
+    - C 是包含两个框的最小闭包区域
+    - 即使不重叠也能提供有效梯度
+    
+    DIoU (Distance IoU):
+    - DIoU = IoU - d²/c²
+    - d 是两个框中心点的距离
+    - c 是最小闭包的对角线长度
+    - 直接优化中心点距离，收敛更快
+    
+    CIoU (Complete IoU):
+    - CIoU = IoU - d²/c² - αv
+    - v 衡量宽高比的一致性
+    - α 是权重参数
+    - 同时考虑中心距离、重叠面积、宽高比
+    """
+    print(exercises_text)
 
 
 # ==================== 主函数 ====================

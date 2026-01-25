@@ -57,16 +57,17 @@ RLHF (Reinforcement Learning from Human Feedback)
 
 | 文件                           | 描述                | 状态 |
 | ------------------------------ | ------------------- | ---- |
-| `01-llm-architecture.py`       | LLM 架构理解        | ⏳   |
-| `02-tokenization-advanced.py`  | 分词器详解          | ⏳   |
-| `03-flash-attention.py`        | FlashAttention 原理 | ⏳   |
-| `04-pre-training-basics.py`    | 预训练基础          | ⏳   |
-| `05-instruction-tuning.py`     | 指令微调            | ⏳   |
-| `06-rlhf-basics.py`            | RLHF 原理           | ⏳   |
-| `07-quantization.py`           | 模型量化            | ⏳   |
-| `08-inference-optimization.py` | 推理优化            | ⏳   |
-| `09-multimodal.py`             | 多模态模型          | ⏳   |
-| `10-agents-tools.py`           | Agent 与工具调用    | ⏳   |
+| `CONCEPT.md`                   | 核心概念文档        | ✅   |
+| `01-llm-architecture.py`       | LLM 架构理解        | ✅   |
+| `02-tokenization-advanced.py`  | 分词器详解          | ✅   |
+| `03-flash-attention.py`        | FlashAttention 原理 | ✅   |
+| `04-pre-training-basics.py`    | 预训练基础          | ✅   |
+| `05-instruction-tuning.py`     | 指令微调            | ✅   |
+| `06-rlhf-basics.py`            | RLHF 原理           | ✅   |
+| `07-quantization.py`           | 模型量化            | ✅   |
+| `08-inference-optimization.py` | 推理优化            | ✅   |
+| `09-multimodal.py`             | 多模态模型          | ✅   |
+| `10-agents-tools.py`           | Agent 与工具调用    | ✅   |
 
 ---
 
@@ -84,14 +85,15 @@ python src/phase-12-llm-frontier/07-quantization.py
 - [LLaMA 论文](https://arxiv.org/abs/2302.13971)
 - [Flash Attention 论文](https://arxiv.org/abs/2205.14135)
 - [InstructGPT 论文](https://arxiv.org/abs/2203.02155)
+- [DPO 论文](https://arxiv.org/abs/2305.18290)
 
 ---
 
 ## ✅ 完成检查
 
-- [ ] 理解现代 LLM 的架构
-- [ ] 理解预训练和微调的区别
-- [ ] 理解 RLHF 的基本流程
-- [ ] 能够进行模型量化
-- [ ] 了解多模态模型的架构
-- [ ] 完成 LLM 微调项目
+- [x] 理解现代 LLM 的架构
+- [x] 理解预训练和微调的区别
+- [x] 理解 RLHF 的基本流程
+- [x] 能够进行模型量化
+- [x] 了解多模态模型的架构
+- [x] 完成 LLM 微调项目

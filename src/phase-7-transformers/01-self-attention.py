@@ -317,11 +317,80 @@ def exercises():
     
     任务：手动计算 Attention(Q, K, V) 的结果
 
+练习 1 答案：
+    步骤 1: 计算 QK^T
+    QK^T = [[1, 0], [0, 1]] @ [[1, 0], [0, 1]]^T
+         = [[1, 0], [0, 1]] @ [[1, 0], [0, 1]]
+         = [[1, 0], [0, 1]]  # 单位矩阵
+    
+    步骤 2: 缩放 (除以 √d_k = √2 ≈ 1.414)
+    scores = [[1/1.414, 0], [0, 1/1.414]]
+           = [[0.707, 0], [0, 0.707]]
+    
+    步骤 3: Softmax (按行)
+    对于第一行 [0.707, 0]:
+        exp(0.707) ≈ 2.028, exp(0) = 1
+        softmax = [2.028/3.028, 1/3.028] ≈ [0.67, 0.33]
+    
+    对于第二行 [0, 0.707]:
+        softmax ≈ [0.33, 0.67]
+    
+    attention_weights ≈ [[0.67, 0.33], [0.33, 0.67]]
+    
+    步骤 4: 加权求和 attention_weights @ V
+    output = [[0.67, 0.33], [0.33, 0.67]] @ [[2, 3], [4, 5]]
+    第一行: [0.67*2 + 0.33*4, 0.67*3 + 0.33*5] = [2.66, 3.66]
+    第二行: [0.33*2 + 0.67*4, 0.33*3 + 0.67*5] = [3.34, 4.34]
+    
+    最终结果 ≈ [[2.66, 3.66], [3.34, 4.34]]
+
 练习 2：实现加性注意力
     除了点积注意力，还有加性注意力：
     score(Q, K) = v^T tanh(W_q Q + W_k K)
     
     任务：实现一个 AdditiveAttention 类
+
+练习 2 答案：
+    class AdditiveAttention(nn.Module):
+        '''加性注意力（Bahdanau Attention）'''
+        
+        def __init__(self, d_model, d_attn):
+            super().__init__()
+            self.W_q = nn.Linear(d_model, d_attn, bias=False)
+            self.W_k = nn.Linear(d_model, d_attn, bias=False)
+            self.v = nn.Linear(d_attn, 1, bias=False)
+        
+        def forward(self, Q, K, V, mask=None):
+            '''
+            Q: (batch, q_len, d_model)
+            K: (batch, k_len, d_model)
+            V: (batch, k_len, d_v)
+            '''
+            # 扩展维度以便广播
+            # Q: (batch, q_len, 1, d_attn)
+            # K: (batch, 1, k_len, d_attn)
+            Q = self.W_q(Q).unsqueeze(2)
+            K = self.W_k(K).unsqueeze(1)
+            
+            # 加性组合 + tanh
+            # (batch, q_len, k_len, d_attn)
+            combined = torch.tanh(Q + K)
+            
+            # 计算分数
+            # (batch, q_len, k_len)
+            scores = self.v(combined).squeeze(-1)
+            
+            # 掩码
+            if mask is not None:
+                scores = scores.masked_fill(mask == 0, -1e9)
+            
+            # Softmax
+            attn_weights = F.softmax(scores, dim=-1)
+            
+            # 加权求和
+            output = torch.matmul(attn_weights, V)
+            
+            return output, attn_weights
 
 练习 3：注意力可视化
     任务：
@@ -329,23 +398,144 @@ def exercises():
     2. 提取第一层的注意力权重
     3. 可视化不同注意力头对输入句子的关注模式
 
+练习 3 答案：
+    from transformers import BertModel, BertTokenizer
+    import matplotlib.pyplot as plt
+    
+    # 1. 加载预训练模型
+    model_name = 'bert-base-uncased'
+    tokenizer = BertTokenizer.from_pretrained(model_name)
+    model = BertModel.from_pretrained(model_name, output_attentions=True)
+    model.eval()
+    
+    # 2. 准备输入
+    text = "The cat sat on the mat"
+    inputs = tokenizer(text, return_tensors='pt')
+    
+    # 3. 前向传播获取注意力
+    with torch.no_grad():
+        outputs = model(**inputs)
+    
+    # outputs.attentions 是一个元组，每层一个
+    # 形状: (batch, num_heads, seq_len, seq_len)
+    first_layer_attn = outputs.attentions[0][0]  # 第一层
+    
+    # 4. 可视化
+    tokens = tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
+    num_heads = first_layer_attn.shape[0]
+    
+    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    for i, ax in enumerate(axes.flatten()):
+        if i < num_heads:
+            attn = first_layer_attn[i].numpy()
+            ax.imshow(attn, cmap='Blues')
+            ax.set_xticks(range(len(tokens)))
+            ax.set_yticks(range(len(tokens)))
+            ax.set_xticklabels(tokens, rotation=45)
+            ax.set_yticklabels(tokens)
+            ax.set_title(f'Head {i+1}')
+    plt.tight_layout()
+    plt.savefig('bert_attention_heads.png')
+
 思考题 1：为什么需要缩放？
     在 Scaled Dot-Product Attention 中，为什么要除以 √d_k？
     提示：考虑点积的方差和 softmax 的饱和问题
 
+思考题 1 答案：
+    原因分析：
+    
+    1. 点积的方差分析
+       - 假设 Q 和 K 的元素都是均值0、方差1的独立随机变量
+       - Q·K = Σ(q_i * k_i)，有 d_k 项
+       - 每项 q_i * k_i 的方差 = 1 (假设独立)
+       - 因此 Q·K 的方差 = d_k
+       - 所以 Q·K 的标准差 = √d_k
+    
+    2. Softmax 饱和问题
+       - 当点积值很大时（正或负）
+       - softmax 的输出会趋近于 one-hot
+       - 梯度会接近于 0（饱和）
+       - 导致训练困难
+    
+    3. 缩放的作用
+       - 除以 √d_k 使得 Q·K/√d_k 的方差约为 1
+       - Softmax 输入在合理范围内
+       - 梯度更稳定，训练更容易
+    
+    4. d_k 越大越需要缩放
+       - BERT/GPT 的 d_k 通常是 64
+       - 不缩放时方差是 64，标准差是 8
+       - 点积值会很极端
+
 思考题 2：自注意力 vs 循环神经网络
     与 RNN/LSTM 相比，自注意力有什么优势和劣势？
-    
+
+思考题 2 答案：
     优势：
-    - ?
+    1. 并行计算
+       - RNN: 必须顺序计算，O(n) 步
+       - Self-Attention: 可完全并行，利用 GPU
+    
+    2. 长距离依赖
+       - RNN: 信息需经过多步传递，可能丢失
+       - Self-Attention: 任意两个位置直接连接
+    
+    3. 可解释性
+       - 注意力权重可视化，理解模型关注点
+    
+    4. 更容易训练
+       - 梯度路径更短，不易梯度消失
     
     劣势：
-    - ?
+    1. 计算复杂度
+       - Self-Attention: O(n²d)，序列长则计算量大
+       - RNN: O(nd)，对长序列更友好
+    
+    2. 内存消耗
+       - 需存储 n×n 的注意力矩阵
+       - 长序列内存开销大
+    
+    3. 位置信息
+       - 需要额外的位置编码
+       - RNN 天然具有顺序性
+    
+    4. 归纳偏置
+       - RNN 有局部性假设（相邻更相关）
+       - Self-Attention 没有，需更多数据学习
 
 思考题 3：位置信息
     自注意力本身是位置不变的（permutation invariant）
     如果交换输入序列的顺序，输出会怎样？
     这说明了什么问题？
+
+思考题 3 答案：
+    现象分析：
+    - 如果交换输入序列顺序，输出也会相应交换
+    - 例如：输入 [A, B, C] 变成 [C, A, B]
+    - 输出从 [O_A, O_B, O_C] 变成 [O_C, O_A, O_B]
+    - 但每个位置的计算结果不变
+    
+    问题：
+    - 自注意力无法区分 "猫追狗" 和 "狗追猫"
+    - 语序信息完全丢失
+    - 这对语言任务是灾难性的
+    
+    解决方案：
+    1. 正弦位置编码
+       - 为每个位置添加唯一的向量
+       - 加到词嵌入上
+    
+    2. 可学习位置编码
+       - 将位置作为参数学习
+       - BERT 采用这种方式
+    
+    3. 相对位置编码
+       - 编码相对距离而非绝对位置
+       - Transformer-XL, T5 采用
+    
+    关键insight：
+    - 位置编码是 Transformer 的必要组件
+    - 它弥补了自注意力缺失的顺序信息
     """
     print(exercises_text)
 

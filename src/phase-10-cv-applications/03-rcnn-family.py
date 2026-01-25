@@ -481,36 +481,251 @@ def exercises():
     print("练习与思考")
     print("=" * 60)
 
-    print("""
+    exercises_text = """
 练习 1：Faster R-CNN 推理
     任务: 加载预训练模型，对真实图片进行检测
     要求: 绘制检测框和类别标签
+
+练习 1 答案：
+    import torch
+    import cv2
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    from torchvision.models.detection import fasterrcnn_resnet50_fpn
+    from torchvision import transforms
+    
+    # 加载模型
+    model = fasterrcnn_resnet50_fpn(pretrained=True)
+    model.eval()
+    
+    # 加载图片
+    image = cv2.imread('image.jpg')
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # 转换为 tensor
+    transform = transforms.ToTensor()
+    img_tensor = transform(image_rgb)
+    
+    # 推理
+    with torch.no_grad():
+        predictions = model([img_tensor])
+    
+    # 可视化
+    fig, ax = plt.subplots(1)
+    ax.imshow(image_rgb)
+    
+    for box, label, score in zip(predictions[0]['boxes'],
+                                  predictions[0]['labels'],
+                                  predictions[0]['scores']):
+        if score > 0.5:
+            x1, y1, x2, y2 = box.tolist()
+            rect = patches.Rectangle((x1, y1), x2-x1, y2-y1,
+                                      linewidth=2, edgecolor='r',
+                                      facecolor='none')
+            ax.add_patch(rect)
+            ax.text(x1, y1-5, f'{COCO_CLASSES[label]}: {score:.2f}')
+    
+    plt.savefig('faster_rcnn_result.png')
 
 练习 2：理解 RPN
     任务: 打印 RPN 的 Anchor 数量和分布
     提示: 查看 model.rpn.anchor_generator
 
+练习 2 答案：
+    from torchvision.models.detection import fasterrcnn_resnet50_fpn
+    
+    model = fasterrcnn_resnet50_fpn(pretrained=True)
+    
+    # 查看 Anchor 生成器
+    anchor_generator = model.rpn.anchor_generator
+    
+    # 打印尺度和比例
+    print('Anchor sizes:', anchor_generator.sizes)
+    # ((32,), (64,), (128,), (256,), (512,))
+    
+    print('Anchor ratios:', anchor_generator.aspect_ratios)
+    # ((0.5, 1.0, 2.0), ...) 每个尺度 3 种比例
+    
+    # 计算总 Anchor 数量
+    # 假设特征图大小为 [H, W]
+    # 每个位置 3 个 Anchor (3种比例)
+    # 5 个尺度的特征图 (FPN)
+    # 总数 = sum(H_i * W_i * 3)
+
 练习 3：自定义训练
     任务: 在 Pascal VOC 数据集上微调 Faster R-CNN
     要求: 记录训练损失和 mAP
+
+练习 3 答案：
+    from torchvision.datasets import VOCDetection
+    from torch.utils.data import DataLoader
+    
+    # 1. 准备数据集
+    dataset = VOCDetection(root='./data', year='2012',
+                           image_set='train', download=True)
+    
+    # 2. 自定义 collate_fn
+    def collate_fn(batch):
+        return tuple(zip(*batch))
+    
+    dataloader = DataLoader(dataset, batch_size=2,
+                            shuffle=True, collate_fn=collate_fn)
+    
+    # 3. 修改模型 (VOC 20类 + 背景)
+    model = fasterrcnn_resnet50_fpn(pretrained=True)
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 21)
+    
+    # 4. 训练循环
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.005,
+                                 momentum=0.9, weight_decay=0.0005)
+    
+    for epoch in range(10):
+        model.train()
+        for images, targets in dataloader:
+            # 转换数据格式...
+            loss_dict = model(images, targets)
+            losses = sum(loss_dict.values())
+            
+            optimizer.zero_grad()
+            losses.backward()
+            optimizer.step()
 
 练习 4：RoI Align vs RoI Pooling
     任务: 对比两种方法的输出差异
     使用 torchvision.ops.roi_align 和 roi_pool
 
+练习 4 答案：
+    from torchvision.ops import roi_align, roi_pool
+    
+    # 创建特征图
+    feature_map = torch.randn(1, 256, 50, 50)
+    
+    # 定义 RoI (浮点坐标)
+    rois = torch.tensor([[0, 10.5, 10.5, 30.7, 30.7]])
+    
+    # RoI Pooling (会量化坐标)
+    out_pool = roi_pool(feature_map, rois,
+                        output_size=(7, 7), spatial_scale=1.0)
+    
+    # RoI Align (保持浮点精度)
+    out_align = roi_align(feature_map, rois,
+                          output_size=(7, 7), spatial_scale=1.0,
+                          sampling_ratio=2)
+    
+    # 比较差异
+    diff = (out_pool - out_align).abs()
+    print(f'平均差异: {diff.mean():.4f}')
+    print(f'最大差异: {diff.max():.4f}')
+    
+    # RoI Align 在边界附近差异更大
+    # 对分割任务影响显著
+
 练习 5：检测速度测试
     任务: 测量 Faster R-CNN 和 YOLOv8 的推理速度
     比较: 不同输入分辨率下的 FPS
 
+练习 5 答案：
+    import time
+    import torch
+    from torchvision.models.detection import fasterrcnn_resnet50_fpn
+    from ultralytics import YOLO
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Faster R-CNN
+    faster_rcnn = fasterrcnn_resnet50_fpn(pretrained=True).to(device).eval()
+    
+    # YOLOv8
+    yolo = YOLO('yolov8n.pt')
+    
+    resolutions = [(640, 480), (1280, 720), (1920, 1080)]
+    
+    for h, w in resolutions:
+        # Faster R-CNN 速度
+        img = torch.randn(3, h, w).to(device)
+        start = time.time()
+        for _ in range(50):
+            with torch.no_grad():
+                faster_rcnn([img])
+        frcnn_fps = 50 / (time.time() - start)
+        
+        # YOLOv8 速度
+        img_np = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
+        start = time.time()
+        for _ in range(50):
+            yolo(img_np, verbose=False)
+        yolo_fps = 50 / (time.time() - start)
+        
+        print(f'{w}x{h}: Faster R-CNN={frcnn_fps:.1f}fps, YOLO={yolo_fps:.1f}fps')
+
 思考题 1：为什么 Faster R-CNN 比 YOLO 更准确？
     特别是在小目标检测上
+
+思考题 1 答案：
+    1. 两阶段设计
+       - RPN 先筛选候选区域
+       - 第二阶段精细分类和回归
+       - 相当于对潜在目标进行两次处理
+    
+    2. RoI 级别的处理
+       - 每个候选区域单独处理
+       - 可以对小目标进行放大处理
+       - 不会因为全局下采样丢失信息
+    
+    3. 更精细的特征
+       - RoI Align 保持空间精度
+       - 独立的分类和回归分支
+    
+    4. 阈值设计
+       - RPN 可以使用较低阈值保证召回
+       - 第二阶段再精细筛选
 
 思考题 2：RPN 训练时如何定义正负样本？
     IoU 阈值是多少？
 
+思考题 2 答案：
+    RPN 的正负样本定义：
+    
+    正样本 (标签=1)：
+    - 与任意 GT 的 IoU > 0.7 的 Anchor
+    - 或者与某个 GT 有最大 IoU 的 Anchor
+    
+    负样本 (标签=0)：
+    - 与所有 GT 的 IoU < 0.3 的 Anchor
+    
+    忽略样本 (标签=-1)：
+    - IoU 在 0.3 到 0.7 之间
+    - 不参与损失计算
+    
+    采样策略：
+    - 每张图采样 256 个 Anchor
+    - 正负比例约 1:1
+    - 正样本不足时用负样本补充
+
 思考题 3：Faster R-CNN 的损失函数包含哪些部分？
     RPN 损失 + Detection 损失
-    """)
+
+思考题 3 答案：
+    Faster R-CNN 的多任务损失：
+    
+    L = L_rpn + L_detection
+    
+    RPN 损失：
+    - L_rpn_cls: 二分类交叉熵 (前景/背景)
+    - L_rpn_reg: Smooth L1 (边界框回归)
+    
+    Detection Head 损失：
+    - L_cls: 多分类交叉熵 (N+1 类)
+    - L_reg: Smooth L1 (精细边界框回归)
+    
+    总损失公式：
+    L = λ1 * L_rpn_cls + λ2 * L_rpn_reg + 
+        λ3 * L_cls + λ4 * L_reg
+    
+    通常 λ1 = λ2 = λ3 = λ4 = 1
+    """
+    print(exercises_text)
 
 
 # ==================== 主函数 ====================

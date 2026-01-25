@@ -419,36 +419,347 @@ def exercises():
     print("练习与思考")
     print("=" * 60)
 
-    print("""
+    exercises_text = """
 练习 1：使用 Keypoint R-CNN
     任务: 加载预训练模型，检测真实图像中的人体姿态
     要求: 绘制骨架连接
+
+练习 1 答案：
+    import torch
+    import cv2
+    import matplotlib.pyplot as plt
+    from torchvision.models.detection import keypointrcnn_resnet50_fpn
+    from torchvision import transforms
+    
+    # 加载模型
+    model = keypointrcnn_resnet50_fpn(pretrained=True)
+    model.eval()
+    
+    # COCO 骨架连接
+    SKELETON = [(0,1),(0,2),(1,3),(2,4),(0,5),(0,6),(5,7),(7,9),
+                (6,8),(8,10),(5,11),(6,12),(11,12),(11,13),(13,15),(12,14),(14,16)]
+    
+    # 加载图片
+    image = cv2.imread('person.jpg')
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # 推理
+    transform = transforms.ToTensor()
+    img_tensor = transform(image_rgb)
+    
+    with torch.no_grad():
+        predictions = model([img_tensor])
+    
+    # 可视化
+    fig, ax = plt.subplots(1, figsize=(10, 10))
+    ax.imshow(image_rgb)
+    
+    for i in range(len(predictions[0]['keypoints'])):
+        if predictions[0]['scores'][i] < 0.7:
+            continue
+        
+        kpts = predictions[0]['keypoints'][i].numpy()
+        
+        # 绘制关键点
+        for x, y, v in kpts:
+            if v > 0:
+                ax.scatter([x], [y], c='red', s=50)
+        
+        # 绘制骨架
+        for start, end in SKELETON:
+            if kpts[start][2] > 0 and kpts[end][2] > 0:
+                ax.plot([kpts[start][0], kpts[end][0]],
+                        [kpts[start][1], kpts[end][1]], 'b-', linewidth=2)
+    
+    plt.savefig('pose_result.png')
 
 练习 2：实现热力图生成
     任务: 实现批量生成多关键点热力图
     包含: 处理关键点不可见的情况
 
+练习 2 答案：
+    import numpy as np
+    import torch
+    
+    def generate_heatmaps(keypoints, heatmap_size, sigma=2):
+        '''
+        生成多关键点热力图
+        
+        Args:
+            keypoints: [K, 3] (x, y, visibility)
+            heatmap_size: (H, W)
+            sigma: 高斯标准差
+        
+        Returns:
+            heatmaps: [K, H, W]
+        '''
+        K = len(keypoints)
+        H, W = heatmap_size
+        heatmaps = np.zeros((K, H, W), dtype=np.float32)
+        
+        # 创建坐标网格
+        xx, yy = np.meshgrid(np.arange(W), np.arange(H))
+        
+        for k, (x, y, v) in enumerate(keypoints):
+            if v == 0:  # 不可见
+                continue
+            
+            # 高斯热力图
+            heatmap = np.exp(-((xx - x)**2 + (yy - y)**2) / (2 * sigma**2))
+            heatmaps[k] = heatmap
+        
+        return heatmaps
+    
+    # 使用示例
+    keypoints = np.array([
+        [100, 50, 1],   # nose, visible
+        [90, 40, 1],    # left_eye, visible
+        [110, 40, 0],   # right_eye, occluded
+        # ... 17个关键点
+    ])
+    
+    heatmaps = generate_heatmaps(keypoints, (256, 256), sigma=3)
+    print(f'热力图形状: {heatmaps.shape}')  # (17, 256, 256)
+
 练习 3：姿态估计训练
     任务: 在 COCO 数据集上训练简单的姿态估计模型
     建议: 使用 SimpleBaseline 架构
+
+练习 3 答案：
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader
+    
+    # 1. SimpleBaseline 模型 (见第四部分)
+    model = SimpleBaseline(num_keypoints=17)
+    
+    # 2. 损失函数 - MSE on heatmaps
+    criterion = nn.MSELoss()
+    
+    # 3. 优化器
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    
+    # 4. 训练循环
+    for epoch in range(100):
+        model.train()
+        for images, target_heatmaps in dataloader:
+            # 前向传播
+            pred_heatmaps = model(images)
+            
+            # 计算损失 (热力图回归)
+            loss = criterion(pred_heatmaps, target_heatmaps)
+            
+            # 反向传播
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+        # 验证 (使用 PCK 或 OKS 指标)
+        model.eval()
+        # ... 计算验证指标
 
 练习 4：动作识别
     任务: 基于姿态估计结果进行简单动作识别
     提示: 可以用关键点的相对位置作为特征
 
+练习 4 答案：
+    import numpy as np
+    from sklearn.ensemble import RandomForestClassifier
+    
+    def extract_pose_features(keypoints):
+        '''
+        从关键点提取特征用于动作识别
+        
+        Args:
+            keypoints: [17, 3] (x, y, visibility)
+        '''
+        features = []
+        
+        # 1. 归一化坐标 (相对于髋部中心)
+        hip_center = (keypoints[11, :2] + keypoints[12, :2]) / 2
+        normalized = keypoints[:, :2] - hip_center
+        features.extend(normalized.flatten())
+        
+        # 2. 骨骼长度
+        bones = [
+            (5, 7), (7, 9),    # 左臂
+            (6, 8), (8, 10),   # 右臂
+            (11, 13), (13, 15), # 左腿
+            (12, 14), (14, 16)  # 右腿
+        ]
+        for start, end in bones:
+            length = np.linalg.norm(keypoints[start, :2] - keypoints[end, :2])
+            features.append(length)
+        
+        # 3. 关节角度
+        def angle(p1, p2, p3):
+            v1 = p1 - p2
+            v2 = p3 - p2
+            cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
+            return np.arccos(np.clip(cos, -1, 1))
+        
+        # 左肘角度
+        features.append(angle(keypoints[5, :2], keypoints[7, :2], keypoints[9, :2]))
+        
+        return np.array(features)
+    
+    # 训练简单分类器
+    X_train = [extract_pose_features(kpts) for kpts in train_keypoints]
+    clf = RandomForestClassifier(n_estimators=100)
+    clf.fit(X_train, y_train)
+
 练习 5：实时姿态估计
     任务: 使用摄像头实时检测人体姿态
     要求: 显示 FPS，绘制骨架
 
+练习 5 答案：
+    import cv2
+    import time
+    import torch
+    from torchvision import transforms
+    from torchvision.models.detection import keypointrcnn_resnet50_fpn
+    
+    SKELETON = [(0,1),(0,2),(1,3),(2,4),(0,5),(0,6),(5,7),(7,9),
+                (6,8),(8,10),(5,11),(6,12),(11,12),(11,13),(13,15),(12,14),(14,16)]
+    
+    model = keypointrcnn_resnet50_fpn(pretrained=True).eval()
+    transform = transforms.ToTensor()
+    
+    cap = cv2.VideoCapture(0)
+    prev_time = time.time()
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # 推理
+        img_tensor = transform(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        with torch.no_grad():
+            preds = model([img_tensor])
+        
+        # 绘制骨架
+        for i in range(len(preds[0]['keypoints'])):
+            if preds[0]['scores'][i] < 0.7:
+                continue
+            kpts = preds[0]['keypoints'][i].numpy().astype(int)
+            
+            for x, y, v in kpts:
+                if v > 0:
+                    cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)
+            
+            for start, end in SKELETON:
+                if kpts[start][2] > 0 and kpts[end][2] > 0:
+                    cv2.line(frame, tuple(kpts[start][:2]), 
+                             tuple(kpts[end][:2]), (255, 0, 0), 2)
+        
+        # FPS
+        curr_time = time.time()
+        fps = 1 / (curr_time - prev_time)
+        prev_time = curr_time
+        cv2.putText(frame, f'FPS: {fps:.1f}', (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        cv2.imshow('Pose Estimation', frame)
+        if cv2.waitKey(1) == 27:
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+
 思考题 1：Top-Down 和 Bottom-Up 各自的适用场景？
     考虑人数、速度、精度等因素
+
+思考题 1 答案：
+    Top-Down (先检测人再估计姿态):
+    适用场景:
+    - 人数较少 (1-5人)
+    - 需要高精度
+    - 对单人姿态质量要求高
+    - 可接受稍慢速度
+    
+    特点:
+    - 速度与人数成正比
+    - 精度高，特别是遮挡情况
+    - 依赖人体检测器质量
+    
+    Bottom-Up (先检测所有关键点再分组):
+    适用场景:
+    - 人数较多 (密集人群)
+    - 需要实时性
+    - 人数变化大
+    - 可接受稍低精度
+    
+    特点:
+    - 速度与人数基本无关
+    - 实时性好
+    - 遮挡严重时分组可能出错
 
 思考题 2：热力图的分辨率如何影响精度？
     为什么不直接输出原图分辨率的热力图？
 
+思考题 2 答案：
+    分辨率影响:
+    - 高分辨率: 定位更精确，但计算量大
+    - 低分辨率: 计算快，但定位粗糙
+    
+    常见配置:
+    - 输入 256×192，热力图 64×48 (1/4)
+    - 输入 384×288，热力图 96×72 (1/4)
+    
+    不输出原图分辨率的原因:
+    
+    1. 计算量过大
+       - 原图 1920×1080 × 17关键点
+       - 内存和计算成本极高
+    
+    2. 语义与分辨率的平衡
+       - 太高分辨率信息冗余
+       - 热力图只需要大致位置
+       - 后处理可以亚像素精度定位
+    
+    3. 训练稳定性
+       - 高分辨率损失更难优化
+       - 低分辨率收敛更快
+    
+    4. 后处理恢复精度
+       - 热力图取 argmax
+       - 加权平均获得亚像素精度
+
 思考题 3：如何处理遮挡和自遮挡问题？
     被遮挡的关键点应该如何处理？
-    """)
+
+思考题 3 答案：
+    遮挡类型:
+    - 自遮挡: 身体部位互相遮挡 (如手背在身后)
+    - 他遮挡: 被其他物体/人遮挡
+    
+    处理策略:
+    
+    1. 数据标注
+       - 标记可见性标签 (v=0/1/2)
+       - 训练时对不可见点降低权重
+    
+    2. 网络设计
+       - 使用更深的网络捕获上下文
+       - 根据可见点推断不可见点
+       - 使用时序信息 (视频)
+    
+    3. 多阶段预测
+       - 先预测初步结果
+       - 根据人体结构约束优化
+       - 迭代细化
+    
+    4. 图神经网络
+       - 建模关键点之间的关系
+       - 通过相邻可见点推断遮挡点
+    
+    5. 后处理
+       - 使用骨骼长度约束
+       - 时序平滑 (视频)
+       - 物理合理性检查
+    """
+    print(exercises_text)
 
 
 # ==================== 主函数 ====================

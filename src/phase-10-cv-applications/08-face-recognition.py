@@ -443,36 +443,343 @@ def exercises():
     print("练习与思考")
     print("=" * 60)
 
-    print("""
+    exercises_text = """
 练习 1：人脸检测
     任务: 使用 MTCNN 检测图像中的人脸
     要求: 绘制边界框和 5 个关键点
+
+练习 1 答案：
+    # pip install facenet-pytorch
+    from facenet_pytorch import MTCNN
+    import cv2
+    import matplotlib.pyplot as plt
+    
+    # 创建检测器
+    mtcnn = MTCNN(keep_all=True, device='cuda')
+    
+    # 加载图片
+    image = cv2.imread('group_photo.jpg')
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # 检测
+    boxes, probs, landmarks = mtcnn.detect(image_rgb, landmarks=True)
+    
+    # 可视化
+    fig, ax = plt.subplots(1, figsize=(12, 8))
+    ax.imshow(image_rgb)
+    
+    if boxes is not None:
+        for box, prob, landmark in zip(boxes, probs, landmarks):
+            if prob < 0.9:
+                continue
+            
+            # 边界框
+            x1, y1, x2, y2 = box
+            ax.add_patch(plt.Rectangle((x1, y1), x2-x1, y2-y1,
+                                        fill=False, color='green', linewidth=2))
+            ax.text(x1, y1-5, f'{prob:.2f}', color='green')
+            
+            # 5 个关键点
+            colors = ['red', 'red', 'blue', 'green', 'green']
+            for i, (x, y) in enumerate(landmark):
+                ax.scatter([x], [y], c=colors[i], s=30)
+    
+    plt.savefig('mtcnn_result.png')
 
 练习 2：人脸对齐
     任务: 实现基于关键点的人脸对齐
     测试: 对齐不同姿态的人脸
 
+练习 2 答案：
+    import cv2
+    import numpy as np
+    
+    def align_face(image, landmarks, target_size=(112, 112)):
+        '''
+        基于 5 点的人脸对齐
+        
+        Args:
+            image: 输入图像
+            landmarks: 5 个关键点 [[x1,y1], [x2,y2], ...]
+            target_size: 输出大小
+        '''
+        # 标准人脸的关键点位置 (基于 112×112)
+        target_landmarks = np.float32([
+            [38.2946, 51.6963],  # 左眼
+            [73.5318, 51.5014],  # 右眼  
+            [56.0252, 71.7366],  # 鼻子
+            [41.5493, 92.3655],  # 左嘴角
+            [70.7299, 92.2041]   # 右嘴角
+        ])
+        
+        src = np.float32(landmarks)
+        
+        # 计算仿射变换矩阵
+        M = cv2.estimateAffinePartial2D(src, target_landmarks)[0]
+        
+        # 应用变换
+        aligned = cv2.warpAffine(image, M, target_size)
+        
+        return aligned
+    
+    # 使用示例
+    from facenet_pytorch import MTCNN
+    mtcnn = MTCNN(keep_all=False)
+    
+    image = cv2.imread('face.jpg')
+    _, _, landmarks = mtcnn.detect(image, landmarks=True)
+    
+    if landmarks is not None:
+        aligned = align_face(image, landmarks[0])
+        cv2.imwrite('aligned_face.jpg', aligned)
+
 练习 3：人脸验证系统
     任务: 构建 1:1 人脸验证系统
     流程: 检测 → 对齐 → 特征提取 → 匹配
+
+练习 3 答案：
+    import torch
+    import torch.nn.functional as F
+    from facenet_pytorch import MTCNN, InceptionResnetV1
+    import cv2
+    import numpy as np
+    
+    class FaceVerifier:
+        def __init__(self, threshold=0.6):
+            self.mtcnn = MTCNN(keep_all=False, image_size=160)
+            self.model = InceptionResnetV1(pretrained='vggface2').eval()
+            self.threshold = threshold
+        
+        def get_embedding(self, image):
+            '''提取人脸特征'''
+            # 检测并对齐
+            face = self.mtcnn(image)
+            if face is None:
+                return None
+            
+            # 提取特征
+            with torch.no_grad():
+                embedding = self.model(face.unsqueeze(0))
+            
+            # 归一化
+            embedding = F.normalize(embedding, p=2, dim=1)
+            return embedding
+        
+        def verify(self, image1, image2):
+            '''验证两张图片是否为同一人'''
+            emb1 = self.get_embedding(image1)
+            emb2 = self.get_embedding(image2)
+            
+            if emb1 is None or emb2 is None:
+                return None, 'Face not detected'
+            
+            # 计算相似度
+            similarity = F.cosine_similarity(emb1, emb2).item()
+            is_same = similarity > self.threshold
+            
+            return is_same, similarity
+    
+    # 使用
+    verifier = FaceVerifier(threshold=0.6)
+    is_same, score = verifier.verify(image1, image2)
+    print(f'同一人: {is_same}, 相似度: {score:.4f}')
 
 练习 4：人脸搜索系统
     任务: 构建 1:N 人脸搜索系统
     包含: 人脸库构建、特征索引、相似度搜索
 
+练习 4 答案：
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from collections import defaultdict
+    
+    class FaceDatabase:
+        def __init__(self):
+            self.embeddings = []
+            self.identities = []
+        
+        def add_face(self, embedding, identity):
+            '''添加人脸到数据库'''
+            self.embeddings.append(embedding)
+            self.identities.append(identity)
+        
+        def build_index(self):
+            '''构建索引'''
+            self.db_tensor = torch.cat(self.embeddings, dim=0)
+        
+        def search(self, query_emb, top_k=5):
+            '''搜索最相似的人脸'''
+            # 计算与所有人脸的相似度
+            similarities = F.cosine_similarity(
+                query_emb, self.db_tensor
+            )
+            
+            # 获取 top-k
+            scores, indices = similarities.topk(top_k)
+            
+            results = []
+            for score, idx in zip(scores.tolist(), indices.tolist()):
+                results.append({
+                    'identity': self.identities[idx],
+                    'score': score
+                })
+            
+            return results
+    
+    # 使用
+    db = FaceDatabase()
+    
+    # 注册人脸
+    for name, image in registered_faces:
+        emb = get_embedding(image)
+        db.add_face(emb, name)
+    
+    db.build_index()
+    
+    # 搜索
+    query_emb = get_embedding(query_image)
+    results = db.search(query_emb, top_k=3)
+
 练习 5：Triplet Mining
     任务: 实现 Hard/Semi-Hard Triplet Mining
     比较: 不同挖掘策略对训练的影响
 
+练习 5 答案：
+    import torch
+    import torch.nn.functional as F
+    
+    def batch_hard_triplet_mining(embeddings, labels, margin=0.2):
+        '''
+        Batch Hard Triplet Mining
+        选择最难的正例和负例
+        '''
+        device = embeddings.device
+        n = embeddings.size(0)
+        
+        # 计算距离矩阵
+        dist_matrix = torch.cdist(embeddings, embeddings, p=2)
+        
+        # 创建标签掩码
+        labels = labels.unsqueeze(0)
+        mask_pos = (labels == labels.T).float()  # 同类
+        mask_neg = (labels != labels.T).float()  # 不同类
+        
+        # 对角线置零 (排除自己)
+        mask_pos = mask_pos - torch.eye(n, device=device)
+        
+        # Hard Positive: 同类中最远的
+        hardest_pos = (dist_matrix * mask_pos).max(dim=1)[0]
+        
+        # Hard Negative: 不同类中最近的
+        # 将同类距离设为很大
+        dist_neg = dist_matrix + mask_pos * 1e9
+        hardest_neg = dist_neg.min(dim=1)[0]
+        
+        # Triplet Loss
+        loss = F.relu(hardest_pos - hardest_neg + margin)
+        
+        return loss.mean()
+    
+    def semi_hard_triplet_mining(embeddings, labels, margin=0.2):
+        '''
+        Semi-Hard Triplet Mining
+        选择比正例远但在 margin 内的负例
+        '''
+        # ... 类似实现
+        # 条件: d(a,p) < d(a,n) < d(a,p) + margin
+        pass
+
 思考题 1：为什么需要人脸对齐？
     不对齐会有什么问题？
+
+思考题 1 答案：
+    为什么需要对齐:
+    
+    1. 减少姿态变化
+       - 侧脸vs正脸差异大
+       - 对齐后统一为正脸
+       - 网络更容易学习
+    
+    2. 标准化输入
+       - 眼睛、嘴巴位置固定
+       - 网络只需关注身份特征
+       - 不需要学习位置不变性
+    
+    不对齐的问题:
+    - 同一人不同姿态特征差异大
+    - 需要更多数据覆盖各种姿态
+    - 网络需要学习姿态不变性
+    - 识别准确率下降
 
 思考题 2：ArcFace 为什么比 Softmax 效果好？
     角度 margin 的作用是什么？
 
+思考题 2 答案：
+    Softmax 的问题:
+    - 只要求正确分类
+    - 不强制类间分离
+    - 特征分布可能紧密
+    
+    ArcFace 的改进:
+    
+    1. 角度空间
+       - 将特征归一化到超球面
+       - 距离变成角度
+       - 更符合人脸分布
+    
+    2. Additive Angular Margin
+       - 公式: cos(θ + m)
+       - 强制同类更近 (角度更小)
+       - 强制异类更远 (角度更大)
+    
+    3. 几何解释
+       - 决策边界更严格
+       - 类间需要更大间隔
+       - 泛化能力更强
+    
+    效果对比:
+    - Softmax: ~95% (LFW)
+    - ArcFace: ~99.8% (LFW)
+
 思考题 3：如何处理大规模人脸库的快速搜索？
     提示: 考虑 ANN (近似最近邻) 算法
-    """)
+
+思考题 3 答案：
+    大规模人脸搜索挑战:
+    - 百万/亿级人脸库
+    - 暴力搜索太慢
+    - 需要近似搜索
+    
+    ANN (Approximate Nearest Neighbor) 算法:
+    
+    1. Faiss (Facebook)
+       - IVF: 倒排索引
+       - PQ: 乘积量化
+       - GPU 加速
+       
+       import faiss
+       index = faiss.IndexFlatIP(512)  # 余弦相似度
+       index.add(db_embeddings)
+       D, I = index.search(query, k=5)
+    
+    2. Annoy (Spotify)
+       - 基于树的结构
+       - 内存映射，支持大数据
+    
+    3. HNSW
+       - 分层可导航小世界
+       - 高召回率
+    
+    4. 聚类分层
+       - 先按聚类筛选
+       - 再在候选中精确搜索
+    
+    典型性能:
+    - 百万级人脸: ~10ms
+    - 亿级人脸: ~100ms
+    """
+    print(exercises_text)
 
 
 # ==================== 主函数 ====================

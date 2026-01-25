@@ -362,6 +362,34 @@ def exercises():
     - 表达能力
     - 计算复杂度
 
+练习 1 答案：
+    # 1. 单头注意力
+    class SingleHeadAttention(nn.Module):
+        def __init__(self, d_model=512):
+            super().__init__()
+            self.W_q = nn.Linear(d_model, d_model)
+            self.W_k = nn.Linear(d_model, d_model)
+            self.W_v = nn.Linear(d_model, d_model)
+            self.W_o = nn.Linear(d_model, d_model)
+    
+    # 2. 8头注意力（使用课程中的 MultiHeadAttention）
+    mha = MultiHeadAttention(d_model=512, num_heads=8)
+    
+    # 参数量比较：
+    single_head = SingleHeadAttention(512)
+    multi_head = MultiHeadAttention(512, 8)
+    
+    single_params = sum(p.numel() for p in single_head.parameters())
+    multi_params = sum(p.numel() for p in multi_head.parameters())
+    
+    print(f'单头参数: {single_params:,}')  # 4 × 512 × 512 = 1,048,576
+    print(f'多头参数: {multi_params:,}')   # 同样 = 1,048,576
+    
+    # 结论：
+    # - 参数量：相同！都是 4 × d_model × d_model
+    # - 表达能力：多头更强，捕获多种关系模式
+    # - 计算复杂度：理论相同，但多头可更好并行
+
 练习 2：可视化注意力头
     加载预训练的 BERT 或 GPT-2 模型
     任务：
@@ -369,20 +397,140 @@ def exercises():
     2. 可视化每个头关注的模式
     3. 分析不同头是否学习到了不同的模式
 
+练习 2 答案：
+    from transformers import BertModel, BertTokenizer
+    import matplotlib.pyplot as plt
+    
+    # 加载模型
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    model = BertModel.from_pretrained('bert-base-uncased', output_attentions=True)
+    
+    # 处理输入
+    text = "The quick brown fox jumps over the lazy dog"
+    inputs = tokenizer(text, return_tensors='pt')
+    
+    with torch.no_grad():
+        outputs = model(**inputs)
+    
+    # 注意力形状: (batch, num_heads, seq_len, seq_len)
+    attentions = outputs.attentions[0][0]  # 第1层
+    tokens = tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
+    
+    # 可视化 12 个头
+    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    for i, ax in enumerate(axes.flatten()):
+        attn = attentions[i].numpy()
+        ax.imshow(attn, cmap='viridis')
+        ax.set_title(f'Head {i+1}')
+    plt.tight_layout()
+    plt.savefig('bert_12_heads.png')
+    
+    # 分析：
+    # - 有些头关注相邻词（局部模式）
+    # - 有些头关注 [CLS] 和 [SEP]
+    # - 有些头关注特定语法关系
+    # - 确实学到了不同模式！
+
 练习 3：实现分组注意力
     在某些高效 Transformer 中，使用分组注意力（Grouped Attention）
     不同于多头注意力，分组注意力对 Q、K、V 也进行分组
     
     任务：实现 GroupedAttention 类
 
+练习 3 答案：
+    class GroupedQueryAttention(nn.Module):
+        '''
+        分组查询注意力 (GQA) - 用于 LLaMA 2, Mistral 等
+        多个 Q 头共享同一组 K, V
+        '''
+        def __init__(self, d_model, num_q_heads, num_kv_heads, dropout=0.1):
+            super().__init__()
+            assert num_q_heads % num_kv_heads == 0
+            
+            self.num_q_heads = num_q_heads
+            self.num_kv_heads = num_kv_heads
+            self.num_groups = num_q_heads // num_kv_heads
+            
+            self.d_k = d_model // num_q_heads
+            
+            # Q 有 num_q_heads 个头
+            self.W_q = nn.Linear(d_model, num_q_heads * self.d_k)
+            # K, V 只有 num_kv_heads 个头
+            self.W_k = nn.Linear(d_model, num_kv_heads * self.d_k)
+            self.W_v = nn.Linear(d_model, num_kv_heads * self.d_k)
+            self.W_o = nn.Linear(d_model, d_model)
+        
+        def forward(self, Q, K, V, mask=None):
+            batch_size, seq_len, _ = Q.size()
+            
+            # 计算 Q, K, V
+            q = self.W_q(Q).view(batch_size, seq_len, self.num_q_heads, self.d_k)
+            k = self.W_k(K).view(batch_size, seq_len, self.num_kv_heads, self.d_k)
+            v = self.W_v(V).view(batch_size, seq_len, self.num_kv_heads, self.d_k)
+            
+            # 扩展 K, V 以匹配 Q 的头数
+            # 每个 KV 头被 num_groups 个 Q 头共享
+            k = k.repeat_interleave(self.num_groups, dim=2)
+            v = v.repeat_interleave(self.num_groups, dim=2)
+            
+            # 标准注意力计算...
+            # (省略后续步骤)
+            return output
+
 思考题 1：为什么要降维？
     在多头注意力中，为什么要将 d_model 分成 num_heads 份？
     为什么不直接用 num_heads 个完整的 d_model 维度的头？
+
+思考题 1 答案：
+    1. 参数效率
+       - 如果每个头都是 d_model 维度
+       - 参数量 = num_heads × 4 × d_model² 
+       - 这太大了！(8头就是8倍参数)
+    
+    2. 计算效率
+       - 降维后每个头只处理 d_k = d_model / num_heads
+       - 总计算量保持不变
+       - 但可以并行计算多个子空间
+    
+    3. 子空间理论
+       - 每个头在不同子空间学习
+       - 类似于 CNN 的多个卷积核
+       - 捕获不同类型的特征
+    
+    4. 实验验证
+       - 原论文实验表明降维版本效果更好
+       - 完整维度的多头反而过拟合
 
 思考题 2：多头的独立性
     理论上，多个头应该学习不同的模式
     实践中，如何确保不同的头真的学习到了不同的东西？
     提示：考虑初始化、正则化等技巧
+
+思考题 2 答案：
+    1. 随机初始化
+       - 不同头的权重随机初始化
+       - 训练过程中自然分化
+       - 但不保证多样性
+    
+    2. Dropout
+       - 对注意力权重应用 dropout
+       - 迫使不同头学习冗余信息
+       - 提高鲁棒性
+    
+    3. 正则化方法
+       - 注意力熵正则化：鼓励多样化
+       - 头剪枝：移除冗余的头
+       - 混合专家(MoE)：显式分工
+    
+    4. 实际观察
+       - 可视化显示不同头确实学习不同模式
+       - 有些头可以被剪掉而不影响性能
+       - 说明存在一定冗余
+    
+    5. 最新研究
+       - 某些头更重要（可以剪枝其他）
+       - 不同层的头作用不同
+       - 底层更关注局部，高层更关注语义
 
 思考题 3：最优头数
     头数是否越多越好？
@@ -391,6 +539,34 @@ def exercises():
     - 模型容量
     - 计算效率
     - 表达能力
+
+思考题 3 答案：
+    头数越多越好吗？不一定！
+    
+    1. 模型容量
+       - 头数不影响总参数量
+       - 但影响每个头的维度 d_k = d_model / h
+       - 头太多 → d_k 太小 → 每个头能力受限
+    
+    2. 经验法则
+       - d_k 建议 ≥ 32，最好 64
+       - d_model=512: 8头 (d_k=64)
+       - d_model=768: 12头 (d_k=64)
+       - d_model=1024: 16头 (d_k=64)
+    
+    3. 计算效率
+       - 头数适中时 GPU 并行效率最高
+       - 头太多可能增加内存访问开销
+    
+    4. 确定最优头数
+       - 超参数搜索
+       - 在验证集上比较
+       - 考虑任务特性
+    
+    5. 研究发现
+       - 某些任务只需要少量头
+       - 头数过多不会提升反而可能下降
+       - 与模型大小、任务复杂度相关
     """
     print(exercises_text)
 

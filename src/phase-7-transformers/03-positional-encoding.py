@@ -278,10 +278,78 @@ def exercises():
     给定 d_model=4, pos=0,1,2
     手动计算正弦位置编码的值
 
+练习 1 答案：
+    公式回顾：
+    PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
+    PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
+    
+    d_model=4, 所以 i = 0, 1
+    
+    分母计算：
+    - i=0: 10000^(0/4) = 10000^0 = 1
+    - i=1: 10000^(2/4) = 10000^0.5 = 100
+    
+    位置 0 (pos=0):
+    - PE(0,0) = sin(0/1) = sin(0) = 0
+    - PE(0,1) = cos(0/1) = cos(0) = 1
+    - PE(0,2) = sin(0/100) = sin(0) = 0
+    - PE(0,3) = cos(0/100) = cos(0) = 1
+    → PE[0] = [0, 1, 0, 1]
+    
+    位置 1 (pos=1):
+    - PE(1,0) = sin(1/1) = sin(1) ≈ 0.841
+    - PE(1,1) = cos(1/1) = cos(1) ≈ 0.540
+    - PE(1,2) = sin(1/100) = sin(0.01) ≈ 0.010
+    - PE(1,3) = cos(1/100) = cos(0.01) ≈ 1.000
+    → PE[1] ≈ [0.841, 0.540, 0.010, 1.000]
+    
+    位置 2 (pos=2):
+    - PE(2,0) = sin(2/1) = sin(2) ≈ 0.909
+    - PE(2,1) = cos(2/1) = cos(2) ≈ -0.416
+    - PE(2,2) = sin(2/100) = sin(0.02) ≈ 0.020
+    - PE(2,3) = cos(2/100) = cos(0.02) ≈ 1.000
+    → PE[2] ≈ [0.909, -0.416, 0.020, 1.000]
+
 练习 2：实现2D位置编码
     对于图像，需要2D位置编码
     任务：实现 PositionalEncoding2D 类
     提示：分别对x和y坐标进行编码
+
+练习 2 答案：
+    class PositionalEncoding2D(nn.Module):
+        '''2D位置编码，用于Vision Transformer等'''
+        
+        def __init__(self, d_model, height, width):
+            super().__init__()
+            
+            # 确保 d_model 可被2整除
+            assert d_model % 2 == 0
+            d_half = d_model // 2
+            
+            # 创建位置编码
+            pe = torch.zeros(height, width, d_model)
+            
+            # Y方向编码 (前半部分维度)
+            y_pos = torch.arange(height).unsqueeze(1)
+            div_term_y = torch.exp(torch.arange(0, d_half, 2) * 
+                                   (-np.log(10000) / d_half))
+            pe[:, :, 0:d_half:2] = torch.sin(y_pos * div_term_y).unsqueeze(1)
+            pe[:, :, 1:d_half:2] = torch.cos(y_pos * div_term_y).unsqueeze(1)
+            
+            # X方向编码 (后半部分维度)
+            x_pos = torch.arange(width).unsqueeze(1)
+            div_term_x = torch.exp(torch.arange(0, d_half, 2) * 
+                                   (-np.log(10000) / d_half))
+            pe[:, :, d_half::2] = torch.sin(x_pos * div_term_x).unsqueeze(0)
+            pe[:, :, d_half+1::2] = torch.cos(x_pos * div_term_x).unsqueeze(0)
+            
+            # 展平为序列形式
+            pe = pe.view(height * width, d_model)
+            self.register_buffer('pe', pe)
+        
+        def forward(self, x):
+            '''x: (batch, height*width, d_model)'''
+            return x + self.pe
 
 练习 3：位置编码可视化
     任务：
@@ -289,20 +357,140 @@ def exercises():
     2. 可视化位置相似度矩阵
     3. 分析：距离近的位置是否更相似？
 
+练习 3 答案：
+    import torch
+    import torch.nn.functional as F
+    import matplotlib.pyplot as plt
+    
+    # 创建位置编码
+    d_model = 256
+    max_len = 100
+    pe_layer = PositionalEncoding(d_model, max_len, dropout=0)
+    pe = pe_layer.pe[0]  # (max_len, d_model)
+    
+    # 计算余弦相似度矩阵
+    pe_normalized = F.normalize(pe, p=2, dim=1)
+    similarity = torch.mm(pe_normalized, pe_normalized.T)
+    
+    # 可视化
+    plt.figure(figsize=(10, 8))
+    plt.imshow(similarity.numpy(), cmap='RdBu', vmin=-1, vmax=1)
+    plt.colorbar(label='Cosine Similarity')
+    plt.xlabel('Position')
+    plt.ylabel('Position')
+    plt.title('Positional Encoding Similarity Matrix')
+    plt.savefig('pe_similarity.png')
+    
+    # 分析结论：
+    # 1. 对角线最亮（自己与自己相似度=1）
+    # 2. 相邻位置相似度较高
+    # 3. 远距离位置相似度较低
+    # 4. 存在周期性模式（sin/cos的特性）
+    # → 确实距离近的位置更相似！
+
 思考题 1：为什么用sin和cos？
     - 为什么不用其他函数？
     - sin和cos的组合有什么数学性质？
     - 提示：考虑三角恒等式
+
+思考题 1 答案：
+    1. 三角恒等式
+       sin(a+b) = sin(a)cos(b) + cos(a)sin(b)
+       cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
+       
+       这意味着：
+       PE(pos+k) 可以表示为 PE(pos) 的线性变换！
+       模型可以学习到相对位置关系
+    
+    2. 有界性
+       - sin/cos 的值域是 [-1, 1]
+       - 不会随位置增大而爆炸
+       - 与词嵌入的scale兼容
+    
+    3. 确定性
+       - 不需要训练
+       - 可以推广到任意长度
+       - 每个位置唯一
+    
+    4. 平滑性
+       - 相邻位置的编码相似
+       - 符合位置距离的直觉
+    
+    5. 频率多样性
+       - 不同维度用不同频率
+       - 类似傅里叶基函数
+       - 可以编码不同粒度的位置信息
 
 思考题 2：位置编码的缩放
     在原始Transformer论文中，位置编码直接加到词嵌入上
     这要求两者的scale相似
     如何确保？有更好的方法吗？
 
+思考题 2 答案：
+    1. 原始Transformer的做法
+       - 词嵌入乘以 √d_model
+       - 词嵌入: ~ sqrt(d_model) 量级
+       - 位置编码: [-1, 1] 量级
+       - 两者量级接近
+    
+    2. 潜在问题
+       - 位置信息可能被词语义淹没
+       - 或者位置信息过强干扰语义
+    
+    3. 更好的方法
+       a) 可学习缩放因子
+          x = word_emb + α * pos_emb
+          α 是可学习参数
+       
+       b) 拼接而非相加
+          x = Concat(word_emb, pos_emb)
+          需要调整后续维度
+       
+       c) 相对位置编码
+          在注意力计算时加入偏置
+          不直接加到嵌入上
+       
+       d) RoPE (Rotary Position Embedding)
+          通过旋转矩阵编码位置
+          LLaMA, GPT-NeoX 使用
+
 思考题 3：长度泛化
     正弦位置编码可以处理训练时未见过的长度
     但实际效果如何？
     为什么有些模型（如BERT）使用可学习位置编码？
+
+思考题 3 答案：
+    1. 正弦编码的泛化
+       理论优势：
+       - 可以外推到任意长度
+       - 不需要训练
+       
+       实际问题：
+       - 在超出训练长度时性能下降
+       - 模型没学过长距离交互模式
+       - 注意力分布可能不合理
+    
+    2. 可学习编码的优势
+       - 可以学习任务特定的位置模式
+       - 可能更好地捕捉特定结构
+       - BERT 用于有限长度（512）效果好
+    
+    3. 各自适用场景
+       正弦编码：
+       - 需要处理变长序列
+       - 资源有限不想增加参数
+       - Transformer原始论文
+       
+       可学习编码：
+       - 长度有上限
+       - 任务特定优化
+       - BERT, GPT-2
+    
+    4. 长度外推的解决方案
+       - ALiBi (Attention with Linear Biases)
+       - RoPE (Rotary Position Embedding)
+       - 位置插值 (Position Interpolation)
+       这些方法显著改善了长度泛化能力
     """
     print(exercises_text)
 

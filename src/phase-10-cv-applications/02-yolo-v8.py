@@ -447,37 +447,238 @@ def exercises():
     print("练习与思考")
     print("=" * 60)
 
-    print("""
+    exercises_text = """
 练习 1：使用 YOLOv8 检测图像
     任务: 下载一张图片，使用 YOLOv8n 进行检测
     要求: 打印所有检测结果，并保存标注后的图像
+
+练习 1 答案：
+    from ultralytics import YOLO
+    from PIL import Image
+    
+    # 加载模型
+    model = YOLO('yolov8n.pt')
+    
+    # 检测
+    results = model('your_image.jpg')
+    
+    # 打印结果
+    for result in results:
+        boxes = result.boxes
+        for box in boxes:
+            cls = int(box.cls[0])
+            conf = float(box.conf[0])
+            xyxy = box.xyxy[0].tolist()
+            name = model.names[cls]
+            print(f'{name}: {conf:.2f}, bbox={xyxy}')
+        
+        # 保存标注后的图像
+        annotated = result.plot()
+        Image.fromarray(annotated).save('detected_result.jpg')
 
 练习 2：自定义数据集训练
     任务: 收集 50 张图片，标注一种物体
     提示: 可以使用 labelimg 或 Roboflow 进行标注
     要求: 训练模型并评估 mAP
 
+练习 2 答案：
+    # 1. 准备数据集目录结构
+    # dataset/
+    #   images/train/  images/val/
+    #   labels/train/  labels/val/
+    
+    # 2. 使用 labelimg 标注 (输出 YOLO 格式)
+    # pip install labelimg
+    # labelimg images/train labels/train
+    
+    # 3. 创建 dataset.yaml
+    # path: /path/to/dataset
+    # train: images/train
+    # val: images/val
+    # names:
+    #   0: your_class
+    
+    # 4. 训练
+    from ultralytics import YOLO
+    model = YOLO('yolov8n.pt')
+    results = model.train(
+        data='dataset.yaml',
+        epochs=50,
+        imgsz=640,
+        batch=8
+    )
+    
+    # 5. 评估
+    metrics = model.val()
+    print(f'mAP50: {metrics.box.map50:.4f}')
+    print(f'mAP50-95: {metrics.box.map:.4f}')
+
 练习 3：模型对比
     任务: 对比 YOLOv8n 和 YOLOv8s 的性能
     比较: 推理速度、mAP、模型大小
+
+练习 3 答案：
+    import time
+    import os
+    from ultralytics import YOLO
+    
+    models = ['yolov8n.pt', 'yolov8s.pt']
+    
+    for model_name in models:
+        model = YOLO(model_name)
+        
+        # 模型大小
+        size_mb = os.path.getsize(model_name) / (1024 * 1024)
+        print(f'{model_name}: {size_mb:.2f} MB')
+        
+        # 推理速度 (测试 100 张)
+        start = time.time()
+        for _ in range(100):
+            model('test_image.jpg', verbose=False)
+        avg_time = (time.time() - start) / 100
+        fps = 1 / avg_time
+        print(f'FPS: {fps:.1f}')
+        
+        # mAP (需要数据集)
+        # metrics = model.val(data='coco.yaml')
 
 练习 4：视频实时检测
     任务: 实现摄像头实时目标检测
     要求: 显示 FPS，支持 ESC 退出
 
+练习 4 答案：
+    import cv2
+    import time
+    from ultralytics import YOLO
+    
+    model = YOLO('yolov8n.pt')
+    cap = cv2.VideoCapture(0)
+    
+    prev_time = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # 检测
+        results = model(frame, verbose=False)
+        annotated = results[0].plot()
+        
+        # 计算 FPS
+        curr_time = time.time()
+        fps = 1 / (curr_time - prev_time)
+        prev_time = curr_time
+        
+        # 显示 FPS
+        cv2.putText(annotated, f'FPS: {fps:.1f}', (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        cv2.imshow('YOLOv8 Detection', annotated)
+        
+        # ESC 退出
+        if cv2.waitKey(1) == 27:
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+
 练习 5：模型导出
     任务: 将训练好的模型导出为 ONNX 或 TensorRT
     测试导出模型的推理速度
 
+练习 5 答案：
+    from ultralytics import YOLO
+    import time
+    
+    # 加载模型
+    model = YOLO('yolov8n.pt')
+    
+    # 导出为 ONNX
+    model.export(format='onnx', dynamic=True)
+    
+    # 导出为 TensorRT (需要 GPU)
+    # model.export(format='engine')
+    
+    # 测试 ONNX 推理速度
+    onnx_model = YOLO('yolov8n.onnx')
+    
+    start = time.time()
+    for _ in range(100):
+        onnx_model('test.jpg', verbose=False)
+    print(f'ONNX 平均推理时间: {(time.time()-start)/100*1000:.1f} ms')
+
 思考题 1：为什么 YOLOv8 采用 Anchor-Free 设计？
     相比 Anchor-Based 有什么优势？
+
+思考题 1 答案：
+    Anchor-Free 的优势：
+    1. 无需手动设计 Anchor
+       - Anchor-Based 需要根据数据集统计设计尺度和比例
+       - 设计不当会影响检测效果
+    
+    2. 减少超参数
+       - 无需调整 Anchor 数量、尺度、比例等
+       - 训练更简单
+    
+    3. 更好的泛化能力
+       - 不依赖特定的 Anchor 先验
+       - 对不同尺度物体更鲁棒
+    
+    4. 计算更高效
+       - 减少 Anchor 匹配的计算
+       - NMS 处理的候选框更少
 
 思考题 2：多尺度检测如何工作？
     FPN 和 PAN 各自的作用是什么？
 
+思考题 2 答案：
+    多尺度检测工作原理：
+    - 在不同分辨率的特征图上检测不同大小的物体
+    - 大特征图检测小物体，小特征图检测大物体
+    
+    FPN (Feature Pyramid Network) 作用：
+    - 自顶向下的路径
+    - 将高层语义信息传递给低层
+    - 增强小目标的检测能力
+    
+    PAN (Path Aggregation Network) 作用：
+    - 自底向上的路径 (在 FPN 基础上)
+    - 将底层的精确位置信息传递给高层
+    - 增强大目标的定位能力
+    
+    YOLOv8 的 Neck 结合了 FPN 和 PAN：
+    - 双向特征融合
+    - 充分利用多尺度特征
+
 思考题 3：如何处理小目标检测问题？
     YOLO 系列有哪些针对性的优化？
-    """)
+
+思考题 3 答案：
+    小目标检测的挑战：
+    - 像素少，特征不明显
+    - 下采样后信息容易丢失
+    
+    YOLO 的优化策略：
+    1. 多尺度检测
+       - 使用高分辨率特征图 (1/8 下采样)
+       - 保留更多空间细节
+    
+    2. FPN 特征融合
+       - 将高层语义传递给低层
+       - 增强小目标特征
+    
+    3. 高分辨率输入
+       - 使用更大的输入尺寸 (如 1280×1280)
+       - 保留更多小目标信息
+    
+    4. 切片推理 (Slice Inference)
+       - 将大图切成小块分别检测
+       - 合并结果
+    
+    5. 专门的小目标检测头
+       - 添加更大分辨率的检测层
+    """
+    print(exercises_text)
 
 
 # ==================== 主函数 ====================

@@ -502,36 +502,263 @@ def exercises():
     print("练习与思考")
     print("=" * 60)
 
-    print("""
+    exercises_text = """
 练习 1：实现 U-Net
     任务: 从零实现完整的 U-Net
     测试: 在随机数据上验证前向传播
+
+练习 1 答案：
+    # 完整 U-Net 实现已在本课程第三部分给出
+    # 关键要点:
+    # 1. DoubleConv: 两次卷积+BN+ReLU
+    # 2. Down: MaxPool + DoubleConv
+    # 3. Up: UpSample/ConvTranspose + Concat + DoubleConv
+    # 4. 测试代码:
+    
+    model = UNet(n_channels=3, n_classes=2)
+    x = torch.randn(1, 3, 256, 256)
+    with torch.no_grad():
+        y = model(x)
+    print(f'Input: {x.shape}, Output: {y.shape}')
+    assert y.shape == (1, 2, 256, 256), '输出形状不正确!'
 
 练习 2：医学图像分割
     任务: 在 Kaggle 的医学图像数据集上训练 U-Net
     推荐: Carvana 汽车分割或肺部 CT 分割
 
+练习 2 答案：
+    # Kaggle Carvana 数据集示例
+    
+    # 1. 下载数据
+    # kaggle competitions download -c carvana-image-masking-challenge
+    
+    # 2. 数据集类
+    class CarvanaDataset(Dataset):
+        def __init__(self, image_dir, mask_dir, transform=None):
+            self.images = sorted(glob.glob(f'{image_dir}/*.jpg'))
+            self.masks = sorted(glob.glob(f'{mask_dir}/*_mask.gif'))
+            self.transform = transform
+        
+        def __getitem__(self, idx):
+            image = Image.open(self.images[idx]).convert('RGB')
+            mask = Image.open(self.masks[idx])
+            
+            if self.transform:
+                image = self.transform(image)
+            mask = torch.from_numpy(np.array(mask) / 255).float()
+            
+            return image, mask.unsqueeze(0)
+    
+    # 3. 训练
+    model = UNet(n_channels=3, n_classes=1)  # 二分类
+    criterion = CombinedLoss()  # BCE + Dice
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    
+    for epoch in range(20):
+        for images, masks in dataloader:
+            pred = model(images)
+            loss = criterion(pred, masks)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
 练习 3：实现 Attention U-Net
     任务: 在标准 U-Net 上添加注意力门控
     对比: 有无注意力机制的效果差异
+
+练习 3 答案：
+    class AttentionUNet(nn.Module):
+        def __init__(self, n_channels, n_classes):
+            super().__init__()
+            # 编码器 (与 U-Net 相同)
+            self.inc = DoubleConv(n_channels, 64)
+            self.down1 = Down(64, 128)
+            self.down2 = Down(128, 256)
+            self.down3 = Down(256, 512)
+            self.down4 = Down(512, 1024)
+            
+            # 注意力门控
+            self.att1 = AttentionGate(512, 1024, 512)
+            self.att2 = AttentionGate(256, 512, 256)
+            self.att3 = AttentionGate(128, 256, 128)
+            self.att4 = AttentionGate(64, 128, 64)
+            
+            # 解码器
+            self.up1 = Up(1024, 512)
+            self.up2 = Up(512, 256)
+            self.up3 = Up(256, 128)
+            self.up4 = Up(128, 64)
+            
+            self.outc = OutConv(64, n_classes)
+        
+        def forward(self, x):
+            x1 = self.inc(x)
+            x2 = self.down1(x1)
+            x3 = self.down2(x2)
+            x4 = self.down3(x3)
+            x5 = self.down4(x4)
+            
+            # 使用注意力门控
+            x4_att = self.att1(x5, x4)
+            x = self.up1(x5, x4_att)
+            
+            x3_att = self.att2(x, x3)
+            x = self.up2(x, x3_att)
+            # ... 以此类推
 
 练习 4：深度监督
     任务: 实现深度监督版本的 U-Net
     在多个尺度输出预测并计算损失
 
+练习 4 答案：
+    class UNetDeepSupervision(nn.Module):
+        def __init__(self, n_channels, n_classes):
+            super().__init__()
+            # 编码器和解码器 (与 U-Net 相同)
+            # ...
+            
+            # 多尺度输出头
+            self.out1 = nn.Conv2d(512, n_classes, 1)  # 1/8 分辨率
+            self.out2 = nn.Conv2d(256, n_classes, 1)  # 1/4 分辨率
+            self.out3 = nn.Conv2d(128, n_classes, 1)  # 1/2 分辨率
+            self.out4 = nn.Conv2d(64, n_classes, 1)   # 原分辨率
+        
+        def forward(self, x):
+            # 编码...
+            # 解码...
+            
+            if self.training:
+                # 返回多尺度预测
+                return [self.out1(d1), self.out2(d2), 
+                        self.out3(d3), self.out4(d4)]
+            else:
+                return self.out4(d4)
+    
+    # 深度监督损失
+    def deep_supervision_loss(preds, target, weights=[0.1, 0.2, 0.3, 0.4]):
+        total_loss = 0
+        for pred, w in zip(preds, weights):
+            # 调整 target 到对应尺度
+            target_scaled = F.interpolate(target, size=pred.shape[2:])
+            total_loss += w * criterion(pred, target_scaled)
+        return total_loss
+
 练习 5：后处理优化
     任务: 实现形态学后处理
     包含: 开闭运算、连通区域分析
 
+练习 5 答案：
+    import cv2
+    import numpy as np
+    from skimage import morphology
+    from skimage.measure import label, regionprops
+    
+    def post_process(pred_mask, min_area=100):
+        '''后处理预测掩码'''
+        # 1. 二值化
+        binary = (pred_mask > 0.5).astype(np.uint8)
+        
+        # 2. 形态学闭运算 (填充小孔)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # 3. 形态学开运算 (去除小噪点)
+        opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
+        
+        # 4. 连通区域分析，移除小区域
+        labeled = label(opened)
+        regions = regionprops(labeled)
+        
+        result = np.zeros_like(opened)
+        for region in regions:
+            if region.area >= min_area:
+                result[labeled == region.label] = 1
+        
+        return result
+
 思考题 1：U-Net 为什么特别适合医学图像？
     考虑数据量、边界精度等因素
+
+思考题 1 答案：
+    1. 数据量少
+       - 医学图像标注成本高，数据量有限
+       - U-Net 设计时就考虑了小数据集
+       - 数据增强策略 (弹性变形) 很有效
+    
+    2. 边界精度要求高
+       - 医学诊断需要精确的边界
+       - Skip Connection 保留空间细节
+       - 能生成清晰的边界
+    
+    3. 语义+细节融合
+       - 深层特征提供语义信息 (什么是病变)
+       - 浅层特征提供位置信息 (病变在哪)
+       - 二者融合得到精确分割
+    
+    4. 对称结构
+       - 编码器捕获上下文
+       - 解码器恢复分辨率
+       - 输入输出可以相同大小
 
 思考题 2：Skip Connection 拼接 vs 加法?
     各有什么优缺点？
 
+思考题 2 答案：
+    拼接 (Concatenation) - U-Net 使用:
+    优点:
+    - 保留编码器和解码器的完整信息
+    - 让网络自己学习如何融合
+    - 信息更丰富
+    
+    缺点:
+    - 通道数翻倍，参数量增加
+    - 计算量更大
+    - 需要后续卷积降低通道数
+    
+    加法 (Addition) - ResNet 使用:
+    优点:
+    - 参数量不变
+    - 计算效率高
+    - 梯度流动好
+    
+    缺点:
+    - 信息会混合，可能丢失细节
+    - 需要通道数相同
+    
+    选择建议:
+    - 分割任务优先用拼接 (需要细节)
+    - 分类任务用加法 (更高效)
+
 思考题 3：如何处理 3D 医学图像 (如 CT)?
     3D U-Net 的设计要点
-    """)
+
+思考题 3 答案：
+    3D U-Net 设计要点：
+    
+    1. 卷积变成 3D
+       - nn.Conv2d → nn.Conv3d
+       - 核大小: 3×3 → 3×3×3
+       - 池化: 2×2 → 2×2×2
+    
+    2. 内存管理
+       - 3D 数据量大，GPU 内存受限
+       - 使用 patch 训练 (如 64×64×64)
+       - 推理时使用滑动窗口
+    
+    3. 各向异性处理
+       - CT 切片间距常≠层内分辨率
+       - 可使用非对称卷积核 (如 3×3×1)
+       - 或先重采样到各向同性
+    
+    4. 代码示例:
+    class UNet3D(nn.Module):
+        def __init__(self):
+            self.conv1 = nn.Conv3d(1, 32, 3, padding=1)
+            self.pool = nn.MaxPool3d(2, 2)
+            self.up = nn.ConvTranspose3d(64, 32, 2, stride=2)
+    """
+    print(exercises_text)
 
 
 # ==================== 主函数 ====================
