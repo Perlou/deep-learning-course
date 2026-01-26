@@ -1,0 +1,89 @@
+# DocuMind AI 配置文件
+
+app:
+  name: DocuMind AI
+  version: 1.0.0
+  debug: true
+  description: 智能文档问答系统
+
+# ============================================
+# 服务器配置
+# ============================================
+server:
+  host: 0.0.0.0
+  api_port: 8000
+  frontend_port: 8501
+
+# ============================================
+# 模型配置
+# ============================================
+models:
+  embedding:
+    name: BAAI/bge-large-zh-v1.5
+    device: auto # auto, cuda, cpu
+    batch_size: 32
+    max_length: 512
+
+  llm:
+    name: Qwen/Qwen2.5-7B-Instruct
+    device: auto
+    quantization: none # none, int4, int8
+    max_tokens: 512
+    temperature: 0.7
+    top_p: 0.9
+    repetition_penalty: 1.1
+
+# ============================================
+# 检索配置
+# ============================================
+retrieval:
+  top_k: 5
+  score_threshold: 0.3
+  use_reranker: false
+  reranker_model: BAAI/bge-reranker-large
+
+# ============================================
+# 文档分块配置
+# ============================================
+chunking:
+  strategy: recursive # recursive, sentence, paragraph
+  chunk_size: 500
+  chunk_overlap: 100
+  min_chunk_size: 50
+  separators:
+    - "\n\n"
+    - "\n"
+    - "。"
+    - "！"
+    - "？"
+    - "；"
+    - "，"
+    - " "
+
+# ============================================
+# 存储配置
+# ============================================
+storage:
+  upload_dir: ./data/uploads
+  index_dir: ./data/indices
+  db_path: ./data/db/documind.db
+  max_file_size: 52428800 # 50MB
+
+# ============================================
+# 支持的文件格式
+# ============================================
+supported_formats:
+  - pdf
+  - docx
+  - txt
+  - md
+
+# ============================================
+# 日志配置
+# ============================================
+logging:
+  level: INFO
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+  rotation: "10 MB"
+  retention: "7 days"
+  log_dir: ./logs
