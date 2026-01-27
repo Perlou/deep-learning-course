@@ -1,13 +1,14 @@
 """
 DocuMind AI - 问答路由
 
-对话问答接口（占位实现）
+对话问答接口
 """
 
+import json
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,11 +25,32 @@ from src.api.schemas import (
     PaginatedData,
     ResponseModel,
     SourceReference,
+    UsageInfo,
 )
+from src.core import get_chat_service
 from src.models import Conversation, Feedback, KnowledgeBase, Message, MessageRole
-from src.utils import generate_id
+from src.utils import generate_id, log
 
 router = APIRouter(prefix="/chat", tags=["问答"])
+
+
+# ============================================
+# 问答配置
+# ============================================
+
+# 是否使用 Mock 模式（不加载真实 LLM 模型）
+# 生产环境设置为 False
+USE_MOCK_LLM = True
+
+
+def _get_chat_service():
+    """获取 ChatService 实例"""
+    return get_chat_service(use_mock=USE_MOCK_LLM)
+
+
+# ============================================
+# 问答接口
+# ============================================
 
 
 @router.post("", response_model=ResponseModel[ChatResponse])
@@ -39,7 +61,7 @@ async def chat(
     """
     发起问答请求（非流式）
 
-    TODO: 集成检索和 LLM 生成
+    集成检索和 LLM 生成，返回完整答案
     """
     # 检查知识库是否存在
     kb_query = select(KnowledgeBase).where(KnowledgeBase.id == data.kb_id)
@@ -51,12 +73,28 @@ async def chat(
 
     # 创建或获取对话
     conversation_id = data.conversation_id
+    conversation_history = []
+
     if conversation_id:
         conv_query = select(Conversation).where(Conversation.id == conversation_id)
         conv_result = await db.execute(conv_query)
         conversation = conv_result.scalar_one_or_none()
         if not conversation:
             raise HTTPException(status_code=404, detail="对话不存在")
+
+        # 获取历史消息
+        msg_query = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(8)  # 最多取最近 8 条
+        )
+        msg_result = await db.execute(msg_query)
+        messages = list(reversed(msg_result.scalars().all()))
+
+        conversation_history = [
+            {"role": msg.role.value, "content": msg.content} for msg in messages
+        ]
     else:
         conversation = Conversation(
             id=generate_id("conv"),
@@ -76,19 +114,44 @@ async def chat(
     )
     db.add(user_message)
 
-    # TODO: 实现真正的检索和生成逻辑
-    # 这里先返回占位响应
-    answer = f"您好！您的问题是：「{data.query}」\n\n这是一个占位响应。检索和 LLM 生成功能将在后续阶段实现。"
+    # 使用 ChatService 生成回答
+    chat_service = _get_chat_service()
 
-    sources = [
-        SourceReference(
-            doc_id="doc_placeholder",
-            filename="示例文档.pdf",
-            chunk_index=0,
-            content="这是一个示例来源引用，实际内容将在检索模块完成后显示。",
-            score=0.95,
+    # 获取生成参数
+    gen_kwargs = {}
+    if data.options:
+        if data.options.temperature is not None:
+            gen_kwargs["temperature"] = data.options.temperature
+        if data.options.max_tokens is not None:
+            gen_kwargs["max_tokens"] = data.options.max_tokens
+
+    top_k = data.options.top_k if data.options else None
+
+    try:
+        result = chat_service.chat(
+            query=data.query,
+            kb_id=data.kb_id,
+            conversation_history=conversation_history,
+            top_k=top_k,
+            **gen_kwargs,
         )
-    ]
+
+        answer = result.answer
+        sources = [
+            SourceReference(
+                doc_id=s.doc_id,
+                filename=s.filename,
+                chunk_index=s.chunk_index,
+                content=s.content,
+                score=s.score,
+            )
+            for s in result.sources
+        ]
+
+    except Exception as e:
+        log.error(f"问答生成失败: {e}")
+        answer = f"抱歉，处理您的问题时出现了错误：{str(e)}"
+        sources = []
 
     # 保存助手消息
     assistant_message = Message(
@@ -122,7 +185,7 @@ async def chat_stream(
     """
     发起问答请求（流式）
 
-    TODO: 实现真正的流式生成
+    使用 SSE 流式返回生成结果
     """
     # 检查知识库是否存在
     kb_query = select(KnowledgeBase).where(KnowledgeBase.id == data.kb_id)
@@ -132,39 +195,118 @@ async def chat_stream(
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
+    # 创建或获取对话
+    conversation_id = data.conversation_id
+    conversation_history = []
+
+    if conversation_id:
+        conv_query = select(Conversation).where(Conversation.id == conversation_id)
+        conv_result = await db.execute(conv_query)
+        conversation = conv_result.scalar_one_or_none()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="对话不存在")
+
+        # 获取历史消息
+        msg_query = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(8)
+        )
+        msg_result = await db.execute(msg_query)
+        messages = list(reversed(msg_result.scalars().all()))
+
+        conversation_history = [
+            {"role": msg.role.value, "content": msg.content} for msg in messages
+        ]
+    else:
+        conversation = Conversation(
+            id=generate_id("conv"),
+            kb_id=data.kb_id,
+            title=data.query[:50] + "..." if len(data.query) > 50 else data.query,
+        )
+        db.add(conversation)
+        await db.flush()
+        conversation_id = conversation.id
+
+    # 保存用户消息
+    user_message = Message(
+        id=generate_id("msg"),
+        conversation_id=conversation_id,
+        role=MessageRole.USER,
+        content=data.query,
+    )
+    db.add(user_message)
+    await db.commit()
+
+    # 生成助手消息 ID
+    assistant_message_id = generate_id("msg")
+
     async def generate():
-        """生成流式响应"""
-        import json
+        """流式生成响应"""
+        chat_service = _get_chat_service()
+        collected_answer = []
+        collected_sources = []
 
-        # 模拟流式输出
-        chunks = [
-            "您好！",
-            "您的问题是：",
-            f"「{data.query}」\n\n",
-            "这是一个",
-            "占位响应。",
-            "检索和 LLM ",
-            "生成功能将在",
-            "后续阶段实现。",
-        ]
+        # 获取生成参数
+        gen_kwargs = {}
+        if data.options:
+            if data.options.temperature is not None:
+                gen_kwargs["temperature"] = data.options.temperature
+            if data.options.max_tokens is not None:
+                gen_kwargs["max_tokens"] = data.options.max_tokens
 
-        for chunk in chunks:
-            yield f"event: chunk\ndata: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+        top_k = data.options.top_k if data.options else None
 
-        # 发送来源引用
-        sources = [
-            {
-                "doc_id": "doc_placeholder",
-                "filename": "示例文档.pdf",
-                "chunk_index": 0,
-                "content": "这是一个示例来源引用。",
-                "score": 0.95,
-            }
-        ]
-        yield f"event: sources\ndata: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+        try:
+            for event in chat_service.stream_chat(
+                query=data.query,
+                kb_id=data.kb_id,
+                conversation_history=conversation_history,
+                top_k=top_k,
+                **gen_kwargs,
+            ):
+                event_dict = event.to_dict()
 
-        # 发送完成信号
-        yield f"event: done\ndata: {json.dumps({'type': 'done', 'message_id': 'msg_placeholder', 'conversation_id': data.conversation_id or 'conv_new'})}\n\n"
+                if event.type.value == "chunk":
+                    collected_answer.append(event_dict.get("content", ""))
+                    yield f"event: chunk\ndata: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
+
+                elif event.type.value == "sources":
+                    collected_sources = event_dict.get("sources", [])
+                    yield f"event: sources\ndata: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
+
+                elif event.type.value == "done":
+                    done_data = {
+                        "type": "done",
+                        "message_id": assistant_message_id,
+                        "conversation_id": conversation_id,
+                    }
+                    yield f"event: done\ndata: {json.dumps(done_data, ensure_ascii=False)}\n\n"
+
+                elif event.type.value == "error":
+                    yield f"event: error\ndata: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            log.error(f"流式生成失败: {e}")
+            error_data = {"type": "error", "error": str(e)}
+            yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+
+        # 保存助手消息到数据库
+        # 注意：这里需要新建一个数据库会话
+        from src.models.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as save_db:
+            full_answer = "".join(collected_answer)
+            assistant_message = Message(
+                id=assistant_message_id,
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content=full_answer,
+                sources=collected_sources,
+            )
+            save_db.add(assistant_message)
+            await save_db.commit()
 
     return StreamingResponse(
         generate(),
@@ -172,8 +314,14 @@ async def chat_stream(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
+
+
+# ============================================
+# 对话管理接口
+# ============================================
 
 
 @router.get(

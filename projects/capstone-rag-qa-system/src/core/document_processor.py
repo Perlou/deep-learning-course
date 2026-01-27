@@ -1,12 +1,10 @@
 """
 DocuMind AI - 文档处理服务
 
-协调文档解析、分块和持久化
+协调文档解析、分块、向量化和持久化
 """
 
-import asyncio
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import select
@@ -14,16 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Chunk, Document, DocumentStatus, KnowledgeBase
 from src.parsers import ParserFactory
-from src.utils import generate_id, get_project_root, get_settings, log
+from src.utils import get_project_root, get_settings, log
 
 from .chunker import TextChunker, create_chunker
+from .embedder import get_embedder
+from .vector_store import get_vector_store_manager
 
 
 class DocumentProcessor:
     """
     文档处理服务
 
-    负责文档的完整处理流程：解析 → 分块 → 存储
+    负责文档的完整处理流程：解析 → 分块 → 向量化 → 存储
     """
 
     def __init__(self, chunker: Optional[TextChunker] = None):
@@ -97,13 +97,47 @@ class DocumentProcessor:
                     extra_metadata=parse_result.metadata,
                 )
 
+            if not chunks:
+                await self._mark_failed(doc, "文档分块结果为空", db)
+                return False
+
             log.info(f"文档分块完成: {doc.filename}, 分块数: {len(chunks)}")
 
             # 更新状态：嵌入中
             doc.status = DocumentStatus.EMBEDDING
             await db.commit()
 
-            # 3. 保存分块到数据库
+            # 3. 生成向量嵌入
+            embedder = get_embedder()
+            chunk_texts = [chunk.content for chunk in chunks]
+            embeddings = embedder.embed_documents(chunk_texts, show_progress=False)
+
+            log.info(f"向量嵌入完成: {doc.filename}, 向量形状: {embeddings.shape}")
+
+            # 4. 保存到向量存储
+            store_manager = get_vector_store_manager()
+            vector_store = store_manager.get_store(doc.kb_id)
+
+            # 构建元数据
+            vector_metadata = []
+            for chunk in chunks:
+                meta = {
+                    "chunk_id": chunk.id,
+                    "doc_id": doc.id,
+                    "content": chunk.content,
+                    "filename": doc.filename,
+                    **chunk.metadata,
+                }
+                vector_metadata.append(meta)
+
+            vector_store.add(embeddings, vector_metadata)
+
+            # 持久化索引
+            store_manager.save_store(doc.kb_id)
+
+            log.info(f"向量索引已更新: kb={doc.kb_id}, 总向量数={vector_store.size}")
+
+            # 5. 保存分块到数据库
             for chunk in chunks:
                 db_chunk = Chunk(
                     id=chunk.id,

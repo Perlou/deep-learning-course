@@ -148,8 +148,8 @@ class Chunk(Base):
     content = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)  # 在文档中的顺序
 
-    # 元数据
-    metadata = Column(JSON, nullable=True)  # 页码、位置等信息
+    # 元数据 (注意: 'metadata' 是 SQLAlchemy 保留字，使用 chunk_metadata)
+    chunk_metadata = Column(JSON, nullable=True)  # 页码、位置等信息
 
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -163,7 +163,7 @@ class Chunk(Base):
             "doc_id": self.doc_id,
             "content": self.content,
             "chunk_index": self.chunk_index,
-            "metadata": self.metadata,
+            "metadata": self.chunk_metadata,
         }
 
 

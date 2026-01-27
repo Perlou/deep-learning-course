@@ -1,0 +1,101 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@layer components {
+  /* 主按钮 */
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary to-accent text-white px-5 py-2.5 rounded-lg font-medium
+           hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 次要按钮 */
+  .btn-secondary {
+    @apply bg-transparent border border-border text-foreground px-5 py-2.5 rounded-lg
+           hover:border-primary/50 transition-colors;
+  }
+
+  /* 危险按钮 */
+  .btn-danger {
+    @apply bg-destructive text-white px-5 py-2.5 rounded-lg font-medium
+           hover:opacity-90 transition-opacity;
+  }
+
+  /* 卡片 */
+  .card {
+    @apply bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl p-5
+           hover:border-primary/50 hover:shadow-glow transition-all;
+  }
+
+  /* 输入框 */
+  .input {
+    @apply bg-card border border-border rounded-xl px-4 py-3 text-foreground w-full
+           focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20
+           placeholder:text-muted;
+  }
+
+  /* 用户消息 */
+  .message-user {
+    @apply bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2 max-w-[70%] ml-auto;
+  }
+
+  /* AI 消息 */
+  .message-ai {
+    @apply bg-card text-foreground rounded-2xl rounded-tl-sm px-4 py-2 max-w-[85%];
+  }
+
+  /* 徽章 */
+  .badge {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply bg-success/20 text-success;
+  }
+
+  .badge-warning {
+    @apply bg-warning/20 text-warning;
+  }
+
+  .badge-error {
+    @apply bg-destructive/20 text-destructive;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-background;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted;
+}
