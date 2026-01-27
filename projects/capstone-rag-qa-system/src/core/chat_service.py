@@ -4,14 +4,13 @@ DocuMind AI - 问答服务模块
 实现 RAG 问答逻辑，整合检索和 LLM 生成
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Generator, List, Optional
 
 from src.utils import get_settings, log
 
-from .llm_engine import LLMEngine, get_llm_engine
+from .llm_engine import get_llm_engine
 from .retriever import Retriever, RetrievalResult, get_retriever
 
 
@@ -142,9 +141,10 @@ class ChatService:
 
     def __init__(
         self,
-        llm: Optional[LLMEngine] = None,
+        llm=None,
         retriever: Optional[Retriever] = None,
         use_mock: bool = False,
+        use_ollama: bool = False,
     ):
         """
         初始化问答服务
@@ -153,15 +153,26 @@ class ChatService:
             llm: LLM 引擎实例
             retriever: 检索器实例
             use_mock: 是否使用 Mock 模式
+            use_ollama: 是否使用 Ollama 引擎
         """
-        self.llm = llm or get_llm_engine(use_mock=use_mock)
+        if llm is not None:
+            self.llm = llm
+        elif use_ollama:
+            from .ollama_engine import get_ollama_engine
+
+            self.llm = get_ollama_engine()
+        else:
+            self.llm = get_llm_engine(use_mock=use_mock)
+
         self.retriever = retriever or get_retriever()
         self.use_mock = use_mock
+        self.use_ollama = use_ollama
 
         settings = get_settings()
         self.top_k = settings.retrieval.top_k
 
-        log.info(f"ChatService 初始化: mock={use_mock}")
+        engine_type = "ollama" if use_ollama else ("mock" if use_mock else "local")
+        log.info(f"ChatService 初始化: engine={engine_type}")
 
     def chat(
         self,
@@ -344,17 +355,18 @@ class ChatService:
 _chat_service: Optional[ChatService] = None
 
 
-def get_chat_service(use_mock: bool = False) -> ChatService:
+def get_chat_service(use_mock: bool = False, use_ollama: bool = False) -> ChatService:
     """
     获取问答服务单例
 
     Args:
         use_mock: 是否使用 Mock 模式
+        use_ollama: 是否使用 Ollama 引擎
 
     Returns:
         ChatService 实例
     """
     global _chat_service
     if _chat_service is None:
-        _chat_service = ChatService(use_mock=use_mock)
+        _chat_service = ChatService(use_mock=use_mock, use_ollama=use_ollama)
     return _chat_service

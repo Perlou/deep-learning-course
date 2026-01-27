@@ -1,0 +1,48 @@
+# ============================================
+# DocuMind AI - Docker Compose
+# ============================================
+
+services:
+  # 主应用服务
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: documind-app
+    ports:
+      - "8000:8000"  # FastAPI
+      - "80:80"      # Nginx (前端)
+    volumes:
+      # 数据持久化
+      - documind-data:/app/data
+      - documind-uploads:/app/uploads
+      - documind-models:/app/models
+      - documind-logs:/app/logs
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - DATABASE_URL=sqlite:///data/documind.db
+      - UPLOAD_DIR=/app/uploads
+      - LOG_DIR=/app/logs
+      - MODEL_CACHE_DIR=/app/models
+      # 可选: 配置 LLM
+      - USE_MOCK_LLM=${USE_MOCK_LLM:-true}
+      - LLM_MODEL=${LLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+# 数据卷定义
+volumes:
+  documind-data:
+    name: documind-data
+  documind-uploads:
+    name: documind-uploads
+  documind-models:
+    name: documind-models
+  documind-logs:
+    name: documind-logs

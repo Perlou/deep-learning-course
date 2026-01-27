@@ -10,8 +10,6 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ role, content, sources }: ChatMessageProps) {
-  const [showSources, setShowSources] = useState(false);
-
   return (
     <div
       className={cn(
@@ -22,9 +20,9 @@ export function ChatMessage({ role, content, sources }: ChatMessageProps) {
       {/* Avatar */}
       <div
         className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+          "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-medium",
           role === "user"
-            ? "bg-primary text-white"
+            ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white"
             : "bg-gradient-to-br from-primary to-accent text-white",
         )}
       >
@@ -32,41 +30,30 @@ export function ChatMessage({ role, content, sources }: ChatMessageProps) {
       </div>
 
       {/* Message Content */}
-      <div className="flex flex-col gap-2 max-w-[80%]">
+      <div
+        className={cn(
+          "flex flex-col gap-2",
+          role === "user" ? "items-end" : "items-start",
+          "max-w-[85%]",
+        )}
+      >
         <div
           className={cn(
             "rounded-2xl px-4 py-3",
             role === "user"
-              ? "bg-primary text-primary-foreground rounded-tr-sm"
-              : "bg-card text-card-foreground rounded-tl-sm",
+              ? "bg-primary text-white rounded-tr-sm"
+              : "bg-card/80 backdrop-blur-sm text-foreground rounded-tl-sm border border-border/50",
           )}
         >
-          <p className="whitespace-pre-wrap">{content}</p>
+          <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
         </div>
 
         {/* Sources */}
         {sources && sources.length > 0 && (
-          <div className="space-y-2">
-            <button
-              onClick={() => setShowSources(!showSources)}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronDown
-                className={cn(
-                  "w-4 h-4 transition-transform",
-                  showSources && "rotate-180",
-                )}
-              />
-              <span>{sources.length} 个来源</span>
-            </button>
-
-            {showSources && (
-              <div className="space-y-2">
-                {sources.map((source, index) => (
-                  <SourceCard key={index} source={source} index={index + 1} />
-                ))}
-              </div>
-            )}
+          <div className="w-full space-y-2">
+            {sources.slice(0, 3).map((source, index) => (
+              <SourceCard key={index} source={source} index={index + 1} />
+            ))}
           </div>
         )}
       </div>
@@ -84,24 +71,47 @@ function SourceCard({ source, index }: SourceCardProps) {
 
   return (
     <div
-      className="bg-card/50 border border-border rounded-lg p-3 cursor-pointer hover:border-primary/30 transition-colors"
+      className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-3 cursor-pointer hover:border-primary/30 transition-all group"
       onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-center gap-2">
-        <FileText className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm font-medium flex-1 truncate">
-          Source {index}: {source.filename}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          相关度: {(source.score * 100).toFixed(0)}%
-        </span>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <FileText className="w-4 h-4 text-primary shrink-0" />
+          <span className="text-sm font-medium truncate">
+            Source {index}: {source.filename}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            Relevance: {(source.score * 100).toFixed(0)}%
+          </span>
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-muted-foreground transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </div>
       </div>
 
-      {expanded && (
-        <p className="mt-2 text-sm text-muted-foreground line-clamp-3">
-          {source.content}
-        </p>
-      )}
+      {/* Progress bar */}
+      <div className="h-1 bg-border/50 rounded-full overflow-hidden mb-2">
+        <div
+          className="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all"
+          style={{ width: `${source.score * 100}%` }}
+        />
+      </div>
+
+      {/* Content preview */}
+      <p
+        className={cn(
+          "text-sm text-muted-foreground transition-all",
+          expanded ? "line-clamp-none" : "line-clamp-2",
+        )}
+      >
+        ...{source.content}...
+      </p>
     </div>
   );
 }

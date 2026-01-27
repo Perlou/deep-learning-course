@@ -6,9 +6,8 @@ DocuMind AI - 问答路由
 
 import json
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +24,6 @@ from src.api.schemas import (
     PaginatedData,
     ResponseModel,
     SourceReference,
-    UsageInfo,
 )
 from src.core import get_chat_service
 from src.models import Conversation, Feedback, KnowledgeBase, Message, MessageRole
@@ -38,13 +36,20 @@ router = APIRouter(prefix="/chat", tags=["问答"])
 # 问答配置
 # ============================================
 
-# 是否使用 Mock 模式（不加载真实 LLM 模型）
-# 生产环境设置为 False
-USE_MOCK_LLM = True
+import os
+
+# LLM 引擎配置（优先级：Ollama > Mock > 本地模型）
+# USE_OLLAMA=true: 使用本地 Ollama 服务 (推荐)
+# USE_MOCK_LLM=true: 使用 Mock 模式（测试用）
+# 都为 false: 加载本地 transformers 模型（需要 GPU）
+USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() in ("true", "1", "yes")
+USE_MOCK_LLM = os.getenv("USE_MOCK_LLM", "true").lower() in ("true", "1", "yes")
 
 
 def _get_chat_service():
     """获取 ChatService 实例"""
+    if USE_OLLAMA:
+        return get_chat_service(use_ollama=True)
     return get_chat_service(use_mock=USE_MOCK_LLM)
 
 
@@ -294,8 +299,9 @@ async def chat_stream(
 
         # 保存助手消息到数据库
         # 注意：这里需要新建一个数据库会话
-        from src.models.database import AsyncSessionLocal
+        from src.models.database import get_async_session_local
 
+        AsyncSessionLocal = get_async_session_local()
         async with AsyncSessionLocal() as save_db:
             full_answer = "".join(collected_answer)
             assistant_message = Message(

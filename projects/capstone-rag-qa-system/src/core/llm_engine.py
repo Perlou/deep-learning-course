@@ -326,18 +326,47 @@ class LLMEngine:
 
     def _mock_generate(self, prompt: str) -> str:
         """Mock 模式生成（用于测试）"""
-        return f"[Mock 响应] 收到问题：{prompt[:100]}..."
+        # 提取参考内容
+        context = self._extract_context(prompt)
+        question = self._extract_question(prompt)
+
+        if context:
+            return f"根据文档内容，{context[:300]}...\n\n这是基于检索到的文档片段生成的 Mock 回复。"
+        return f"[Mock 响应] 未找到相关文档。问题：{question[:100]}..."
 
     def _mock_stream_generate(self, prompt: str) -> Generator[str, None, None]:
         """Mock 模式流式生成（用于测试）"""
         import time
 
-        response = f"[Mock 响应] 收到问题：{prompt[:50]}...\n\n这是一个模拟的流式响应，用于测试目的。"
-        words = response.split()
+        context = self._extract_context(prompt)
+        question = self._extract_question(prompt)
 
+        if context:
+            # 基于检索结果生成回复
+            response = f"根据检索到的文档内容：\n\n{context[:500]}\n\n以上是与您问题相关的内容摘要。"
+        else:
+            response = f"[Mock 响应] 当前知识库中没有找到与「{question[:50]}」相关的文档。请先上传相关文档。"
+
+        words = response.split()
         for word in words:
             yield word + " "
-            time.sleep(0.05)
+            time.sleep(0.02)
+
+    def _extract_context(self, prompt: str) -> str:
+        """从 prompt 中提取参考内容"""
+        if "## 参考内容" in prompt and "## 用户问题" in prompt:
+            start = prompt.find("## 参考内容") + len("## 参考内容")
+            end = prompt.find("## 用户问题")
+            return prompt[start:end].strip()
+        return ""
+
+    def _extract_question(self, prompt: str) -> str:
+        """从 prompt 中提取用户问题"""
+        if "## 用户问题" in prompt and "## 回答" in prompt:
+            start = prompt.find("## 用户问题") + len("## 用户问题")
+            end = prompt.find("## 回答")
+            return prompt[start:end].strip()
+        return prompt[:100]
 
     def unload_model(self):
         """卸载模型释放内存"""

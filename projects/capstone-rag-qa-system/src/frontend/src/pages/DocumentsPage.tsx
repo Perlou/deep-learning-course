@@ -97,14 +97,10 @@ export function DocumentsPage() {
     );
   }
 
-  const processingCount = documents.filter(
-    (d) => d.status !== "completed" && d.status !== "failed",
-  ).length;
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-14 border-b border-border flex items-center justify-between px-6">
+      <header className="h-16 border-b border-border/50 bg-card/30 backdrop-blur-sm flex items-center justify-between px-6 lg:px-8">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate("/")}
@@ -112,62 +108,95 @@ export function DocumentsPage() {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <h1 className="font-semibold">{kb?.name || "知识库"}</h1>
-            <p className="text-xs text-muted-foreground">
-              {documents.length} 个文档
-              {processingCount > 0 && (
-                <span className="ml-2 text-warning">
-                  ({processingCount} 处理中)
-                </span>
-              )}
-            </p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold">
+              Knowledge Base: {kb?.name || "..."}
+            </h1>
+            <span className="px-2.5 py-1 bg-primary/20 text-primary text-xs font-medium rounded-full">
+              {documents.length} Documents
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={loadData}
-            className="btn-secondary flex items-center gap-2"
-            title="刷新"
+            className="p-2.5 rounded-lg hover:bg-card transition-colors text-muted-foreground"
+            title="Refresh"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-5 h-5" />
           </button>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="btn-primary flex items-center gap-2"
+            className="btn-primary flex items-center gap-2 text-sm"
           >
             <Upload className="w-4 h-4" />
-            上传文档
+            Upload Documents
           </button>
           <Link
             to={`/chat/${kbId}`}
-            className="btn-secondary flex items-center gap-2"
+            className="btn-secondary flex items-center gap-2 text-sm"
           >
             <MessageSquare className="w-4 h-4" />
-            开始对话
+            Start Chat
           </Link>
         </div>
       </header>
 
+      {/* Toolbar */}
+      <div className="px-6 lg:px-8 py-4 border-b border-border/50 flex items-center gap-4">
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            placeholder="Search documents..."
+            className="input pl-10 py-2"
+          />
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Filter:</span>
+          <select className="input py-2 px-3 text-sm min-w-[140px]">
+            <option>All Status</option>
+            <option>Completed</option>
+            <option>Processing</option>
+            <option>Failed</option>
+          </select>
+        </div>
+      </div>
+
       {/* Content */}
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-6 lg:p-8 overflow-auto">
         {documents.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
-            <Upload className="w-16 h-16 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">暂无文档</h3>
-            <p className="text-muted-foreground mb-4">
-              上传文档开始构建您的知识库
+            <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+              <Upload className="w-10 h-10 text-primary" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2">No documents yet</h3>
+            <p className="text-muted-foreground mb-6 max-w-md">
+              Upload documents to start building your knowledge base. We support
+              PDF, DOCX, TXT, and Markdown files.
             </p>
             <button
               onClick={() => setShowUploadModal(true)}
               className="btn-primary"
             >
-              上传文档
+              Upload Your First Document
             </button>
           </div>
         ) : (
-          <div className="space-y-3 max-w-3xl">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">
             {documents.map((doc) => (
               <FileCard
                 key={doc.id}
@@ -175,6 +204,7 @@ export function DocumentsPage() {
                 fileType={doc.file_type}
                 fileSize={doc.file_size}
                 status={doc.status}
+                createdAt={doc.created_at}
                 onDelete={() => handleDelete(doc.id)}
               />
             ))}

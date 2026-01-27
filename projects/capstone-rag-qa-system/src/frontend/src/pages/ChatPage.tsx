@@ -6,8 +6,10 @@ import {
   History,
   ThumbsUp,
   ThumbsDown,
+  ChevronDown,
 } from "lucide-react";
 import { ChatMessage, ChatInput } from "../components";
+import { cn } from "../lib/utils";
 import {
   streamChat,
   knowledgeBaseApi,
@@ -176,7 +178,7 @@ export function ChatPage() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-14 border-b border-border flex items-center justify-between px-6">
+      <header className="h-14 border-b border-border/50 bg-card/30 backdrop-blur-sm flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(`/kb/${kbId}/documents`)}
@@ -184,22 +186,37 @@ export function ChatPage() {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <h1 className="font-semibold">{kb?.name || "对话"}</h1>
-            <p className="text-xs text-muted-foreground">向知识库提问</p>
+
+          {/* Knowledge Base Selector */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-card/50 rounded-lg border border-border/50">
+            <span className="text-sm text-muted-foreground">
+              Current Knowledge Base:
+            </span>
+            <span className="text-sm font-medium text-primary">
+              {kb?.name || "Loading..."}
+            </span>
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className="btn-secondary flex items-center gap-2"
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+              showHistory
+                ? "bg-primary/20 text-primary"
+                : "hover:bg-card text-muted-foreground",
+            )}
           >
             <History className="w-4 h-4" />
-            历史
+            <span className="text-sm">History</span>
           </button>
-          <button onClick={handleNewConversation} className="btn-primary">
-            新对话
+          <button
+            onClick={handleNewConversation}
+            className="btn-primary text-sm"
+          >
+            + New Chat
           </button>
         </div>
       </header>

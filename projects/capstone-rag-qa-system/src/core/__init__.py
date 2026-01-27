@@ -13,6 +13,7 @@ from .document_processor import (
 )
 from .embedder import Embedder, get_embedder
 from .llm_engine import LLMEngine, get_llm_engine, init_llm_engine
+from .ollama_engine import OllamaEngine, get_ollama_engine
 from .retriever import Retriever, RetrievalResult, get_retriever
 from .vector_store import (
     VectorStore,
@@ -46,6 +47,9 @@ __all__ = [
     "LLMEngine",
     "get_llm_engine",
     "init_llm_engine",
+    # Ollama Engine
+    "OllamaEngine",
+    "get_ollama_engine",
     # Chat Service
     "ChatService",
     "ChatResult",

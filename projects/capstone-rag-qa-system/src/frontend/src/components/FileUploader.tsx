@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, X, FileText, File } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import { cn } from "../lib/utils";
 
 interface FileUploaderProps {
@@ -75,6 +75,7 @@ interface FileCardProps {
     | "embedding"
     | "completed"
     | "failed";
+  createdAt?: string;
   onDelete?: () => void;
 }
 
@@ -83,15 +84,16 @@ export function FileCard({
   fileType,
   fileSize,
   status,
+  createdAt,
   onDelete,
 }: FileCardProps) {
   const statusText: Record<string, string> = {
-    pending: "等待中",
-    parsing: "解析中",
-    chunking: "分块中",
-    embedding: "向量化",
-    completed: "已完成",
-    failed: "失败",
+    pending: "Pending",
+    parsing: "Parsing",
+    chunking: "Chunking",
+    embedding: "Embedding",
+    completed: "Completed",
+    failed: "Failed",
   };
 
   const statusClass: Record<string, string> = {
@@ -109,35 +111,82 @@ export function FileCard({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  // File type specific styling
+  const getFileTypeStyle = () => {
+    switch (fileType.toLowerCase()) {
+      case "pdf":
+        return { bg: "bg-red-500/20", text: "text-red-400", label: "PDF" };
+      case "docx":
+        return { bg: "bg-blue-500/20", text: "text-blue-400", label: "DOCX" };
+      case "txt":
+        return { bg: "bg-gray-500/20", text: "text-gray-400", label: "TXT" };
+      case "md":
+        return { bg: "bg-purple-500/20", text: "text-purple-400", label: "MD" };
+      default:
+        return {
+          bg: "bg-primary/20",
+          text: "text-primary",
+          label: fileType.toUpperCase(),
+        };
+    }
+  };
+
+  const fileStyle = getFileTypeStyle();
+  const isProcessing = ["pending", "parsing", "chunking", "embedding"].includes(
+    status,
+  );
+
   return (
-    <div className="card flex items-center gap-4 group">
-      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-        {fileType === "pdf" ? (
-          <FileText className="w-5 h-5 text-primary" />
-        ) : (
-          <File className="w-5 h-5 text-primary" />
+    <div className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-4 flex items-center gap-4 group hover:border-primary/30 transition-all">
+      {/* File Type Icon */}
+      <div
+        className={cn(
+          "w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xs",
+          fileStyle.bg,
         )}
+      >
+        <span className={fileStyle.text}>{fileStyle.label}</span>
       </div>
 
+      {/* File Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{filename}</p>
+        <p className="font-medium truncate text-foreground">{filename}</p>
         <p className="text-sm text-muted-foreground">
-          {formatSize(fileSize)} • {fileType.toUpperCase()}
+          {formatSize(fileSize)} • {createdAt && formatDate(createdAt)}
         </p>
       </div>
 
-      <span className={cn("badge", statusClass[status])}>
-        {statusText[status]}
-      </span>
-
-      {onDelete && (
-        <button
-          onClick={onDelete}
-          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-destructive/10 text-destructive transition-all"
+      {/* Status Badge */}
+      <div className="flex items-center gap-3">
+        <span
+          className={cn("badge flex items-center gap-1.5", statusClass[status])}
         >
-          <X className="w-4 h-4" />
-        </button>
-      )}
+          {isProcessing && (
+            <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
+          )}
+          {statusText[status]}
+        </span>
+
+        {/* Delete Button */}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            className="opacity-0 group-hover:opacity-100 p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-all"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -37,6 +37,7 @@ class EmbeddingConfig(BaseModel):
     device: str = "auto"
     batch_size: int = 32
     max_length: int = 512
+    dimension: int = 1024  # BGE-large 默认维度
 
 
 class LLMConfig(BaseModel):

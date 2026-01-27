@@ -57,16 +57,21 @@ export function KnowledgeBasePage() {
   };
 
   return (
-    <div className="flex-1 p-6 overflow-auto">
+    <div className="flex-1 p-6 lg:p-8 overflow-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">知识库</h1>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">Knowledge Bases</h1>
+          <p className="text-muted-foreground">
+            Manage your document collections
+          </p>
+        </div>
         <button
           onClick={() => setShowCreateModal(true)}
           className="btn-primary flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          创建知识库
+          Create New
         </button>
       </div>
 
@@ -76,7 +81,7 @@ export function KnowledgeBasePage() {
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
           {knowledgeBases.map((kb) => (
             <KnowledgeBaseCard
               key={kb.id}
@@ -88,6 +93,7 @@ export function KnowledgeBasePage() {
               updatedAt={kb.updated_at}
               onClick={() => navigate(`/kb/${kb.id}/documents`)}
               onDelete={() => handleDelete(kb.id)}
+              onChat={() => navigate(`/chat/${kb.id}`)}
             />
           ))}
           <CreateKnowledgeBaseCard onClick={() => setShowCreateModal(true)} />

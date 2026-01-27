@@ -479,3 +479,43 @@ async def delete_document(
             "deleted_chunks": chunk_count,
         }
     )
+
+
+@router.post("/{doc_id}/reprocess", response_model=ResponseModel)
+async def reprocess_document(
+    doc_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    重新处理文档
+
+    用于重新处理失败或待处理的文档
+    """
+    query = select(Document).where(Document.id == doc_id)
+    result = await db.execute(query)
+    doc = result.scalar_one_or_none()
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 检查状态：只有 PENDING 或 FAILED 状态可以重处理
+    if doc.status not in [DocumentStatus.PENDING, DocumentStatus.FAILED]:
+        raise HTTPException(
+            status_code=400, detail=f"文档状态为 {doc.status.value}，无法重新处理"
+        )
+
+    # 重置状态
+    doc.status = DocumentStatus.PENDING
+    doc.error_message = None
+    await db.commit()
+
+    # 触发后台处理
+    background_tasks.add_task(process_document_background, doc_id)
+
+    return ResponseModel(
+        data={
+            "id": doc_id,
+            "message": "已开始重新处理文档",
+        }
+    )
