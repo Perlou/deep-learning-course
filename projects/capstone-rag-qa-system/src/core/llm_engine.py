@@ -7,7 +7,7 @@ DocuMind AI - LLM 推理引擎模块
 
 from dataclasses import dataclass
 from threading import Thread
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, Optional
 
 import torch
 
@@ -335,7 +335,7 @@ class LLMEngine:
         return f"[Mock 响应] 未找到相关文档。问题：{question[:100]}..."
 
     def _mock_stream_generate(self, prompt: str) -> Generator[str, None, None]:
-        """Mock 模式流式生成（用于测试）"""
+        """Mock 模式流式生成（用于测试）- 逐字符输出模拟打字效果"""
         import time
 
         context = self._extract_context(prompt)
@@ -343,14 +343,14 @@ class LLMEngine:
 
         if context:
             # 基于检索结果生成回复
-            response = f"根据检索到的文档内容：\n\n{context[:500]}\n\n以上是与您问题相关的内容摘要。"
+            response = "您好！请问您需要了解或解决什么问题呢？如果有具体的文档或信息需求，欢迎提供相关信息。例如，关于 API 使用、消息角色定义或其他任何内容。我会尽力为您解答和帮助。"
         else:
-            response = f"[Mock 响应] 当前知识库中没有找到与「{question[:50]}」相关的文档。请先上传相关文档。"
+            response = f"当前知识库中没有找到与「{question[:30]}」相关的文档。请先上传相关文档后再进行提问。"
 
-        words = response.split()
-        for word in words:
-            yield word + " "
-            time.sleep(0.02)
+        # 逐字符输出，模拟打字效果
+        for char in response:
+            yield char
+            time.sleep(0.03)  # 30ms per character
 
     def _extract_context(self, prompt: str) -> str:
         """从 prompt 中提取参考内容"""

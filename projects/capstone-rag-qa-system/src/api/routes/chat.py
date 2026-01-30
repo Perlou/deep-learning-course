@@ -4,6 +4,7 @@ DocuMind AI - 问答路由
 对话问答接口
 """
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -248,10 +249,14 @@ async def chat_stream(
     assistant_message_id = generate_id("msg")
 
     async def generate():
-        """流式生成响应"""
+        """流式生成响应 - 使用线程实现真正的流式输出"""
+        import queue
+        import threading
+
         chat_service = _get_chat_service()
         collected_answer = []
         collected_sources = []
+        event_queue: queue.Queue = queue.Queue()
 
         # 获取生成参数
         gen_kwargs = {}
@@ -263,23 +268,49 @@ async def chat_stream(
 
         top_k = data.options.top_k if data.options else None
 
+        def run_stream():
+            """在线程中运行同步的流式生成"""
+            try:
+                for event in chat_service.stream_chat(
+                    query=data.query,
+                    kb_id=data.kb_id,
+                    conversation_history=conversation_history,
+                    top_k=top_k,
+                    **gen_kwargs,
+                ):
+                    event_queue.put(event)
+                event_queue.put(None)  # 结束信号
+            except Exception as e:
+                from src.core.chat_service import StreamEvent, StreamEventType
+
+                event_queue.put(StreamEvent(type=StreamEventType.ERROR, data=str(e)))
+                event_queue.put(None)
+
+        # 启动线程
+        thread = threading.Thread(target=run_stream, daemon=True)
+        thread.start()
+
         try:
-            for event in chat_service.stream_chat(
-                query=data.query,
-                kb_id=data.kb_id,
-                conversation_history=conversation_history,
-                top_k=top_k,
-                **gen_kwargs,
-            ):
+            while True:
+                # 非阻塞检查队列
+                try:
+                    event = event_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.01)  # 短暂等待
+                    continue
+
+                if event is None:
+                    break
+
                 event_dict = event.to_dict()
 
                 if event.type.value == "chunk":
                     collected_answer.append(event_dict.get("content", ""))
-                    yield f"event: chunk\ndata: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
 
                 elif event.type.value == "sources":
                     collected_sources = event_dict.get("sources", [])
-                    yield f"event: sources\ndata: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
 
                 elif event.type.value == "done":
                     done_data = {
@@ -287,15 +318,15 @@ async def chat_stream(
                         "message_id": assistant_message_id,
                         "conversation_id": conversation_id,
                     }
-                    yield f"event: done\ndata: {json.dumps(done_data, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
                 elif event.type.value == "error":
-                    yield f"event: error\ndata: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(event_dict, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             log.error(f"流式生成失败: {e}")
             error_data = {"type": "error", "error": str(e)}
-            yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
 
         # 保存助手消息到数据库
         # 注意：这里需要新建一个数据库会话

@@ -276,6 +276,11 @@ export function ChatPage() {
                       role={msg.role}
                       content={msg.content}
                       sources={msg.sources}
+                      isStreaming={
+                        generating &&
+                        msg.role === "assistant" &&
+                        msg === messages[messages.length - 1]
+                      }
                     />
                     {/* Feedback buttons for assistant messages */}
                     {msg.role === "assistant" && msg.content && !generating && (
