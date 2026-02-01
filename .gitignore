@@ -1,48 +1,157 @@
-# 忽略大型数据集
-data/*.csv
-data/*.json
-data/*.zip
-data/*.tar.gz
+# ============================================
+# Python 相关
+# ============================================
+# 字节码和缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 虚拟环境
+venv/
+.venv/
+env/
+.env
+ENV/
+env.bak/
+venv.bak/
+
+# Python 分发和打包
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.manifest
+*.spec
+
+# ============================================
+# 深度学习相关
+# ============================================
+# 数据集（保留 README）
+data/
 !data/README.md
+!data/.gitkeep
+
+# 大型数据文件
+*.csv
+*.json
+*.zip
+*.tar.gz
+*.tar
+*.gz
+*.rar
+*.7z
 
 # 模型文件
 *.pt
 *.pth
 *.ckpt
 *.h5
+*.hdf5
+*.pb
+*.onnx
 *.safetensors
+*.bin
+*.pkl
+*.pickle
 
-# Jupyter
+# 训练输出
+outputs/
+runs/
+logs/
+checkpoints/
+wandb/
+tensorboard/
+mlruns/
+
+# ============================================
+# Jupyter Notebook
+# ============================================
 .ipynb_checkpoints/
 *.ipynb_checkpoints
+*/.ipynb_checkpoints/*
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-.env
-
-# IDE
-.idea/
+# ============================================
+# IDE 和编辑器
+# ============================================
+# VSCode
 .vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
 *.swp
 *.swo
 *~
+.*.swp
+.*.swo
 
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
 # 操作系统
+# ============================================
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# 日志和输出
-logs/
-outputs/
-runs/
-wandb/
+# Linux
+*~
+.directory
+.Trash-*
 
-# 临时文件
+# ============================================
+# 临时文件和缓存
+# ============================================
 *.tmp
 *.temp
+*.log
+*.cache
+.cache/
+
+# ============================================
+# 项目特定
+# ============================================
+# 保留项目结构说明文件
+!projects/README.md
+!src/README.md
+!notebooks/README.md
+!ex-projects/README.md
+
+# 测试覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# 环境变量
+.env.local
+.env.*.local
