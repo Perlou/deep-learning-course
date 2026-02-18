@@ -1,15 +1,15 @@
 """
-02_train_tokenizer.py — 分词器训练脚本
-=======================================
+train_tokenizer.py — 分词器训练脚本
+=====================================
 
 使用 sentencepiece 训练 BPE 分词器。
 
 使用方法:
-  python scripts/02_train_tokenizer.py
-  python scripts/02_train_tokenizer.py --vocab_size 8000 --config configs/small.yaml
+  python scripts/train_tokenizer.py
+  python scripts/train_tokenizer.py --vocab_size 8000 --config configs/small.yaml
 
 前置步骤:
-  python scripts/01_prepare_data.py  (先准备数据)
+  python scripts/prepare_data.py
 """
 
 import os
@@ -17,7 +17,6 @@ import sys
 import argparse
 from pathlib import Path
 
-# 添加项目根目录到 path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -56,14 +55,14 @@ def main():
     print(f"📊 字符覆盖率: {character_coverage}")
     print(f"📁 输出目录: {args.output_dir}")
 
-    # 检查训练语料是否存在
+    # 检查训练语料
     if not os.path.exists(args.corpus):
         print(f"\n❌ 训练语料不存在: {args.corpus}")
-        print(f"   请先运行: python scripts/01_prepare_data.py")
+        print("   请先运行: python scripts/prepare_data.py")
         sys.exit(1)
 
     # 训练分词器
-    print(f"\n🔄 开始训练...")
+    print("\n🔄 开始训练...")
     model_prefix = os.path.join(args.output_dir, "tokenizer")
 
     ClearMindTokenizer.train(
@@ -73,8 +72,8 @@ def main():
         character_coverage=character_coverage,
     )
 
-    # 验证分词器
-    print(f"\n🔍 验证分词器...")
+    # 验证
+    print("\n🔍 验证分词器...")
     model_path = f"{model_prefix}.model"
     tokenizer = ClearMindTokenizer(model_path)
 
@@ -90,7 +89,7 @@ def main():
         "The Transformer architecture is amazing! 注意力机制很重要。",
     ]
 
-    print(f"\n📝 编解码测试:")
+    print("\n📝 编解码测试:")
     for text in test_texts:
         ids = tokenizer.encode(text, add_bos=True, add_eos=True)
         pieces = tokenizer.tokenize(text)
@@ -103,7 +102,7 @@ def main():
 
     print(f"{'=' * 60}")
     print("✅ 分词器训练完成!")
-    print(f"\n💡 下一步: python scripts/03_pretrain.py")
+    print(f"\n💡 下一步: python scripts/train.py --stage pretrain")
     print("=" * 60)
 
 

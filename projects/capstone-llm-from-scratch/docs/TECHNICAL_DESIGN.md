@@ -498,12 +498,11 @@ capstone-llm-from-scratch/
 │       └── chat.py                  # 交互式对话
 │
 ├── scripts/                         # 入口脚本 (按顺序编号)
-│   ├── 01_prepare_data.py           # 下载和准备数据
-│   ├── 02_train_tokenizer.py        # 训练 BPE 分词器
-│   ├── 03_pretrain.py               # 启动预训练
-│   ├── 04_sft.py                    # 启动 SFT
-│   ├── 05_dpo.py                    # 启动 DPO
-│   └── 06_chat.py                   # 启动对话
+│   ├── prepare_data.py              # 数据准备 (样例/HuggingFace)
+│   ├── train_tokenizer.py           # 训练 BPE 分词器
+│   ├── train.py                     # 统一训练 (--stage pretrain/sft/dpo)
+│   ├── chat.py                      # 启动对话
+│   └── autodl_train.sh              # AutoDL 一键训练
 │
 ├── evaluate/                        # 评估
 │   └── eval_perplexity.py           # 困惑度评估

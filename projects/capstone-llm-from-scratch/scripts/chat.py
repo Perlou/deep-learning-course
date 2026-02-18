@@ -1,18 +1,18 @@
 """
-06_chat.py — 对话入口脚本
-=========================
+chat.py — 对话入口脚本
+========================
 
 加载已训练的模型，启动交互式对话界面。
 
 使用方法:
   # 使用 DPO 模型 (最佳)
-  python scripts/06_chat.py
+  python scripts/chat.py
 
   # 使用 SFT 模型
-  python scripts/06_chat.py --model outputs/sft/final.pth
+  python scripts/chat.py --model outputs/sft/final.pth
 
   # 使用预训练模型 (只会续写, 不会对话)
-  python scripts/06_chat.py --model outputs/pretrain/final.pth
+  python scripts/chat.py --model outputs/pretrain/final.pth
 """
 
 import os

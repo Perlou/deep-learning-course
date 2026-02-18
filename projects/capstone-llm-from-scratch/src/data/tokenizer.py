@@ -162,7 +162,7 @@ if __name__ == "__main__":
     model_path = "outputs/tokenizer/tokenizer.model"
     if not os.path.exists(model_path):
         print(f"分词器模型不存在: {model_path}")
-        print("请先运行 scripts/02_train_tokenizer.py 训练分词器")
+        print("请先运行 scripts/train_tokenizer.py 训练分词器")
         sys.exit(0)
 
     tokenizer = ClearMindTokenizer(model_path)

@@ -53,15 +53,11 @@ capstone-llm-from-scratch/
 │       ├── generate.py      #    文本生成 (Top-k/Top-p/Temperature)
 │       └── chat.py          #    交互式对话
 ├── scripts/                 # 🚀 入口脚本
-│   ├── 01_prepare_data.py   #    样例数据生成
-│   ├── 02_train_tokenizer.py    # BPE 分词器训练
-│   ├── 03_pretrain.py       #    预训练入口
-│   ├── 04_sft.py            #    SFT 微调入口
-│   ├── 05_dpo.py            #    DPO 对齐入口
-│   ├── 06_chat.py           #    对话入口
-│   ├── download_dataset.py  #    真实数据集下载
-│   ├── autodl_train.sh      #    AutoDL 一键训练
-│   └── verify_model.py      #    模型架构验证
+│   ├── prepare_data.py      #    数据准备 (样例/HuggingFace)
+│   ├── train_tokenizer.py   #    BPE 分词器训练
+│   ├── train.py             #    统一训练入口 (--stage pretrain/sft/dpo)
+│   ├── chat.py              #    交互式对话
+│   └── autodl_train.sh      #    AutoDL 一键训练
 ├── evaluate/
 │   └── eval_perplexity.py   #    困惑度评估
 ├── docs/                    # 📚 项目文档
@@ -83,25 +79,25 @@ pip install -r requirements.txt
 ### MacBook 训练 (ClearMind-Mini, ~26M)
 
 ```bash
-python scripts/01_prepare_data.py        # Step 1: 准备样例数据
-python scripts/02_train_tokenizer.py     # Step 2: 训练分词器
-python scripts/03_pretrain.py            # Step 3: 预训练
-python scripts/04_sft.py                 # Step 4: SFT 指令微调
-python scripts/05_dpo.py                 # Step 5: DPO 偏好对齐
-python scripts/06_chat.py               # Step 6: 开始对话!
+python scripts/prepare_data.py            # Step 1: 准备样例数据
+python scripts/train_tokenizer.py        # Step 2: 训练分词器
+python scripts/train.py --stage pretrain # Step 3: 预训练
+python scripts/train.py --stage sft      # Step 4: SFT 指令微调
+python scripts/train.py --stage dpo      # Step 5: DPO 偏好对齐
+python scripts/chat.py                   # Step 6: 开始对话!
 ```
 
 ### A100 训练 (ClearMind-Plus, ~468M)
 
 ```bash
 # 下载真实大规模数据集
-python scripts/download_dataset.py --scale large
+python scripts/prepare_data.py --scale large
 
 # 训练
-python scripts/02_train_tokenizer.py --config configs/large.yaml
-python scripts/03_pretrain.py --config configs/large.yaml
-python scripts/04_sft.py --config configs/large.yaml
-python scripts/05_dpo.py --config configs/large.yaml
+python scripts/train_tokenizer.py --config configs/large.yaml
+python scripts/train.py --stage pretrain --config configs/large.yaml
+python scripts/train.py --stage sft --config configs/large.yaml
+python scripts/train.py --stage dpo --config configs/large.yaml
 
 # 或使用一键脚本 (AutoDL)
 bash scripts/autodl_train.sh large

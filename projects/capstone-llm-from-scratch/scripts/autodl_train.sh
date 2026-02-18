@@ -6,7 +6,6 @@
 # 在 AutoDL 服务器上执行完整的训练流程
 #
 # 使用方法:
-#   # 上传项目到服务器后:
 #   bash scripts/autodl_train.sh small     # 小规模快速验证
 #   bash scripts/autodl_train.sh medium    # 中等规模训练
 #   bash scripts/autodl_train.sh large     # 大规模 A100 训练
@@ -17,7 +16,7 @@
 #
 # 前提:
 #   - AutoDL 服务器已启动 (推荐 A100 80GB)
-#   - 已上传项目文件到 /root/autodl-tmp/minimind/
+#   - 已上传项目文件到 /root/autodl-tmp/clearmind/
 #   - Python 环境已安装 PyTorch
 # =========================================================
 
@@ -26,7 +25,7 @@ set -e  # 遇错即停
 # ===================== 参数解析 =====================
 SCALE=${1:-small}            # small / medium / large
 STAGE=${2:-all}              # all / pretrain / sft / dpo / chat
-PROJECT_DIR="/root/autodl-tmp/minimind"
+PROJECT_DIR="/root/autodl-tmp/clearmind"
 CONFIG="configs/${SCALE}.yaml"
 
 echo "=========================================="
@@ -46,10 +45,8 @@ cd "$PROJECT_DIR"
 echo ""
 echo "🔧 Step 0: 环境检查..."
 
-# 安装依赖
 pip install -q -r requirements.txt
 
-# 检查 PyTorch + CUDA
 python -c "
 import torch
 print(f'PyTorch: {torch.__version__}')
@@ -63,19 +60,14 @@ if torch.cuda.is_available():
 if [ "$STAGE" == "all" ] || [ "$STAGE" == "data" ]; then
     echo ""
     echo "📦 Step 1: 数据准备..."
-
-    if [ "$SCALE" == "small" ]; then
-        python scripts/01_prepare_data.py --data_dir data
-    else
-        python scripts/download_dataset.py --scale "$SCALE" --data_dir data
-    fi
+    python scripts/prepare_data.py --scale "$SCALE" --data_dir data
 fi
 
 # ===================== 分词器 =====================
 if [ "$STAGE" == "all" ] || [ "$STAGE" == "tokenizer" ]; then
     echo ""
     echo "📝 Step 2: 训练分词器..."
-    python scripts/02_train_tokenizer.py --config "$CONFIG"
+    python scripts/train_tokenizer.py --config "$CONFIG"
 fi
 
 # ===================== 预训练 =====================
@@ -83,14 +75,13 @@ if [ "$STAGE" == "all" ] || [ "$STAGE" == "pretrain" ]; then
     echo ""
     echo "🚀 Step 3: 预训练..."
 
-    # 根据规模设置训练步数
     case $SCALE in
         small)  MAX_STEPS=5000 ;;
         medium) MAX_STEPS=50000 ;;
         large)  MAX_STEPS=100000 ;;
     esac
 
-    python scripts/03_pretrain.py \
+    python scripts/train.py --stage pretrain \
         --config "$CONFIG" \
         --max_steps "$MAX_STEPS" \
         --log_every 50
@@ -103,9 +94,9 @@ if [ "$STAGE" == "all" ] || [ "$STAGE" == "sft" ]; then
     echo ""
     echo "📚 Step 4: SFT 指令微调..."
 
-    python scripts/04_sft.py \
+    python scripts/train.py --stage sft \
         --config "$CONFIG" \
-        --pretrained outputs/pretrain/final.pth \
+        --resume outputs/pretrain/final.pth \
         --log_every 20
 
     echo "✅ SFT 完成!"
@@ -116,9 +107,9 @@ if [ "$STAGE" == "all" ] || [ "$STAGE" == "dpo" ]; then
     echo ""
     echo "🎯 Step 5: DPO 对齐训练..."
 
-    python scripts/05_dpo.py \
+    python scripts/train.py --stage dpo \
         --config "$CONFIG" \
-        --sft_model outputs/sft/final.pth \
+        --resume outputs/sft/final.pth \
         --log_every 10
 
     echo "✅ DPO 完成!"
@@ -149,6 +140,6 @@ echo "模型文件:"
 ls -lh outputs/*/final.pth 2>/dev/null || echo "  (无模型文件)"
 echo ""
 echo "下一步:"
-echo "  对话测试: python scripts/06_chat.py --config $CONFIG"
+echo "  对话测试: python scripts/chat.py --config $CONFIG"
 echo "  下载模型: 从 AutoDL 文件管理器下载 outputs/ 目录"
 echo "=========================================="
