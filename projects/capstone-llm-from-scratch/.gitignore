@@ -1,0 +1,22 @@
+# 数据目录
+data/
+!data/.gitkeep
+
+# 输出目录
+outputs/
+!outputs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

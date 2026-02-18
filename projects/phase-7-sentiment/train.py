@@ -2,13 +2,17 @@
 训练BERT情感分类模型
 """
 
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
-from transformers import BertTokenizer
 import time
-import os
+
+# 配置HuggingFace镜像以解决网络问题
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+from transformers import BertTokenizer
 from bert_classifier import BERTClassifier, create_sample_data
 
 

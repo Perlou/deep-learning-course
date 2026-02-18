@@ -52,15 +52,15 @@ class StockDataset(Dataset):
     def __getitem__(self, idx):
         """
         返回 (X, y) 对
-        X: 过去 window_size 天的价格
-        y: 下一天的价格
+        X: 过去 window_size 天的价格 (window_size, 1)
+        y: 下一天的价格 (1,)
         """
-        x = self.data[idx : idx + self.window_size]
-        y = self.data[idx + self.window_size]
+        x = self.data[idx : idx + self.window_size]  # (window_size, 1)
+        y = self.data[idx + self.window_size]  # (1,)
 
         return (
-            torch.tensor(x, dtype=torch.float32).unsqueeze(-1),  # (window_size, 1)
-            torch.tensor(y, dtype=torch.float32).unsqueeze(-1),  # (1,)
+            torch.tensor(x, dtype=torch.float32),  # 已经是 (window_size, 1)
+            torch.tensor(y, dtype=torch.float32),  # 已经是 (1,)
         )
 
 
@@ -71,11 +71,17 @@ def load_and_preprocess_data(data_path, train_ratio=0.8, window_size=30):
     Returns:
         train_loader, test_loader, scaler, train_size
     """
-    # 读取数据
-    df = pd.read_csv(data_path, index_col=0, parse_dates=True)
+    # 读取数据，跳过第二行（包含 Ticker 信息）
+    df = pd.read_csv(data_path, index_col=0, parse_dates=True, skiprows=[1])
 
-    # 使用收盘价
-    prices = df["Close"].values.reshape(-1, 1)
+    # 使用收盘价，确保是数值类型
+    prices = pd.to_numeric(df["Close"], errors="coerce").values
+
+    # 删除 NaN 值
+    prices = prices[~np.isnan(prices)]
+
+    # 重新 reshape 为 2D 数组
+    prices = prices.reshape(-1, 1)
 
     print("\n数据信息:")
     print(f"  总样本数: {len(prices)}")

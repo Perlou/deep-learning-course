@@ -1,0 +1,15 @@
+# MiniMind - 从零训练大语言模型
+# Core
+torch>=2.1.0
+sentencepiece>=0.2.0
+
+# Data
+datasets>=2.16.0
+tqdm>=4.66.0
+
+# Config
+pyyaml>=6.0.0
+
+# Evaluation & Visualization
+numpy>=1.24.0
+matplotlib>=3.8.0

@@ -5,6 +5,11 @@ BERT中文情感分类
 
 import torch
 import torch.nn as nn
+import os
+
+# 配置HuggingFace镜像以解决网络问题
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 from transformers import BertTokenizer, BertModel
 import numpy as np
 
