@@ -2,7 +2,7 @@
 GPT — 完整的 Decoder-only Transformer 语言模型
 ==============================================
 
-这是 MiniMind 的核心模型文件，将所有组件组装成完整的 GPT 模型。
+这是 ClearMind 的核心模型文件，将所有组件组装成完整的 GPT 模型。
 
 模型结构:
   Token IDs → Embedding → N × TransformerBlock → RMSNorm → LM Head → Logits
@@ -225,7 +225,7 @@ class GPT(nn.Module):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("MiniMind GPT 模型验证")
+    print("ClearMind GPT 模型验证")
     print("=" * 60)
 
     # ========== Small 配置测试 ==========

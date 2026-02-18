@@ -1,0 +1,60 @@
+# ClearMind-Plus 配置 (~468M 参数)
+# 专为 A100 80GB 优化
+# 训练时间: ~12-24 小时 (A100 80GB) 取决于数据量
+#
+# 参数估算:
+#   Embedding:    2048 × 64000         = 131M
+#   Per Block:    4 × 2048² + 3 × 2048 × 5632 ≈ 51M
+#   24 Blocks:    51M × 24             = 1224M → 但 weight tying 减少一半 embedding
+#   总计 ≈ 468M (含 weight tying)
+
+model:
+  d_model: 2048         # 隐藏层维度
+  n_heads: 32           # 注意力头数
+  n_kv_heads: 8         # KV 头数 (GQA, 4:1 分组, 大幅节省 KV 缓存)
+  n_layers: 24          # Transformer 层数
+  d_ff: 5632            # FFN 中间维度 (≈ 2.75 × d_model)
+  vocab_size: 64000     # 大词表 (覆盖更多中英文 token)
+  max_seq_len: 2048     # 较长上下文
+  dropout: 0.0          # 大模型通常不用 dropout
+  norm_eps: 1.0e-5      # RMSNorm epsilon
+
+tokenizer:
+  model_type: bpe
+  vocab_size: 64000
+  character_coverage: 0.9999  # 更高覆盖率
+
+pretrain:
+  batch_size: 24               # A100 80GB 可容纳
+  gradient_accumulation: 8     # 有效 batch = 192
+  max_steps: 100000            # 更长训练
+  lr: 3.0e-4
+  min_lr: 1.0e-5
+  weight_decay: 0.1
+  warmup_steps: 4000           # 更充分的 warmup
+  save_every: 10000
+  eval_every: 2000
+  dtype: bfloat16              # A100 原生 BF16
+
+sft:
+  batch_size: 8
+  gradient_accumulation: 8     # 有效 batch = 64
+  epochs: 2
+  lr: 1.0e-5
+  weight_decay: 0.01
+  dtype: bfloat16
+
+dpo:
+  batch_size: 4
+  gradient_accumulation: 8     # 有效 batch = 32 (DPO 需要 2× 内存: chosen + rejected)
+  epochs: 1
+  lr: 3.0e-6
+  beta: 0.1
+  dtype: bfloat16
+
+generation:
+  max_new_tokens: 1024
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.1

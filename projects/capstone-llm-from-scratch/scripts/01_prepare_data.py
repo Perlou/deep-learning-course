@@ -2,7 +2,7 @@
 01_prepare_data.py — 数据准备脚本
 ==================================
 
-下载并准备 MiniMind 训练所需的全部数据:
+下载并准备 ClearMind 训练所需的全部数据:
   1. 预训练数据: 中英文混合文本语料
   2. SFT 数据: 指令-回复对话数据
   3. DPO 数据: 偏好对齐数据
@@ -233,7 +233,7 @@ def create_tokenizer_corpus(data_dir: str, output_path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MiniMind 数据准备")
+    parser = argparse.ArgumentParser(description="ClearMind 数据准备")
     parser.add_argument("--data_dir", type=str, default="data", help="数据存储目录")
     parser.add_argument(
         "--pretrain_samples", type=int, default=5000, help="预训练样本数"
@@ -244,7 +244,7 @@ def main():
 
     data_dir = args.data_dir
     print("=" * 60)
-    print("MiniMind 数据准备")
+    print("ClearMind 数据准备")
     print("=" * 60)
 
     # 1. 创建预训练数据

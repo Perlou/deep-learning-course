@@ -3,7 +3,7 @@ FeedForward — 基于 SwiGLU 的前馈网络
 =====================================
 
 前馈网络 (FFN) 是 Transformer Block 中与 Attention 并列的核心组件。
-MiniMind 使用 SwiGLU 变体替代原始 Transformer 的 ReLU FFN。
+ClearMind 使用 SwiGLU 变体替代原始 Transformer 的 ReLU FFN。
 
 结构对比:
   标准 FFN:    FFN(x) = GELU(x·W₁ + b₁)·W₂ + b₂     (2 个权重矩阵)

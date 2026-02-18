@@ -13,7 +13,7 @@ from src.model.gpt import GPT
 
 def main():
     print("=" * 60)
-    print("MiniMind GPT 模型验证")
+    print("ClearMind GPT 模型验证")
     print("=" * 60)
 
     # ========== Small 配置 ==========

@@ -22,11 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import yaml
-from src.data.tokenizer import MiniMindTokenizer
+from src.data.tokenizer import ClearMindTokenizer
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MiniMind 分词器训练")
+    parser = argparse.ArgumentParser(description="ClearMind 分词器训练")
     parser.add_argument(
         "--config", type=str, default="configs/small.yaml", help="配置文件路径"
     )
@@ -49,7 +49,7 @@ def main():
     character_coverage = config["tokenizer"].get("character_coverage", 0.9995)
 
     print("=" * 60)
-    print("MiniMind 分词器训练")
+    print("ClearMind 分词器训练")
     print("=" * 60)
     print(f"\n📄 训练语料: {args.corpus}")
     print(f"📊 词表大小: {vocab_size}")
@@ -66,7 +66,7 @@ def main():
     print(f"\n🔄 开始训练...")
     model_prefix = os.path.join(args.output_dir, "tokenizer")
 
-    MiniMindTokenizer.train(
+    ClearMindTokenizer.train(
         input_file=args.corpus,
         model_prefix=model_prefix,
         vocab_size=vocab_size,
@@ -76,7 +76,7 @@ def main():
     # 验证分词器
     print(f"\n🔍 验证分词器...")
     model_path = f"{model_prefix}.model"
-    tokenizer = MiniMindTokenizer(model_path)
+    tokenizer = ClearMindTokenizer(model_path)
 
     print(f"  实际词表大小: {tokenizer.vocab_size}")
     print(f"  BOS ID: {tokenizer.bos_id}")

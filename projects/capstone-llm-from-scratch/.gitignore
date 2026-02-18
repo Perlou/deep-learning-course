@@ -1,6 +1,9 @@
 # 数据目录
 data/
 !data/.gitkeep
+!**/src/data/
+!**/src/data/**
+
 
 # 输出目录
 outputs/
