@@ -63,11 +63,17 @@ capstone-llm-from-scratch/
 │   ├── eval_generation.py   #    生成质量评估 (Distinct-N/重复率)
 │   ├── eval_instruction.py  #    指令跟随评估 (格式/相关性/安全性)
 │   └── eval_benchmark.py    #    综合评估报告 (一键全面评测)
+├── deploy/                  # 🚀 部署模块
+│   ├── api_server.py        #    FastAPI REST API (兼容 OpenAI 格式)
+│   ├── web_demo.py          #    Gradio Web 演示界面
+│   ├── export_model.py      #    模型导出 (权重瘦身/量化)
+│   └── Dockerfile           #    Docker 容器化
 ├── docs/                    # 📚 项目文档
 │   ├── PRD.md               #    产品需求文档
 │   ├── TECHNICAL_DESIGN.md  #    技术设计文档
 │   └── PROGRESS_TRACKER.md  #    开发进度表
-└── requirements.txt
+├── requirements.txt
+└── requirements-deploy.txt  # 部署专用依赖
 ```
 
 ## 🚀 快速开始
@@ -170,13 +176,71 @@ python evaluate/eval_instruction.py --model outputs/dpo/final.pth
 python evaluate/eval_benchmark.py --config configs/small.yaml
 ```
 
+## 🚀 部署上线
+
+### 安装部署依赖
+
+```bash
+pip install -r requirements-deploy.txt
+```
+
+### 方式一: REST API 服务 (推荐)
+
+```bash
+# 启动 API 服务 (兼容 OpenAI 格式)
+python deploy/api_server.py --model outputs/dpo/final.pth --port 8000
+
+# 测试 (兼容 OpenAI 客户端)
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "你好"}]}'
+```
+
+### 方式二: Web 演示界面
+
+```bash
+# 本地启动 Gradio 界面
+python deploy/web_demo.py --model outputs/dpo/final.pth
+
+# 创建公网分享链接
+python deploy/web_demo.py --model outputs/dpo/final.pth --share
+```
+
+### 方式三: Docker 部署
+
+```bash
+# 构建镜像
+docker build -t clearmind -f deploy/Dockerfile .
+
+# 运行 API 服务
+docker run -p 8000:8000 -v ./outputs:/app/outputs clearmind
+
+# 运行 Web 界面
+docker run -p 7860:7860 -v ./outputs:/app/outputs clearmind \
+  python deploy/web_demo.py --port 7860
+```
+
+### 模型导出与优化
+
+```bash
+# 导出精简权重 (去除优化器状态)
+python deploy/export_model.py --model outputs/dpo/final.pth --format weights
+
+# INT8 量化 (减少模型大小和推理延迟)
+python deploy/export_model.py --model outputs/dpo/final.pth --format quantized
+
+# 导出所有格式
+python deploy/export_model.py --model outputs/dpo/final.pth --format all
+```
+
 ## 📖 学习路线
 
 1. **理解架构** — 阅读 `src/model/` 下每个文件的注释
 2. **跑通流程** — 用 `small` 配置在 MacBook 上跑完全流程
 3. **对比效果** — 用 `eval_benchmark.py` 一键对比各阶段模型
 4. **深入评估** — 分析生成质量和指令跟随能力的变化
-5. **扩大规模** — 在 A100 上用 `large` 配置训练更大模型
+5. **部署上线** — 用 API / Web / Docker 部署到生产环境
+6. **扩大规模** — 在 A100 上用 `large` 配置训练更大模型
 
 ## 📝 License
 
