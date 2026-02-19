@@ -111,10 +111,10 @@ SCALE_OPTIONS=(
 select_option "📦 选择模型规模:" "${SCALE_OPTIONS[@]}"
 
 case $SELECTED_INDEX in
-    0) CONFIG="configs/tiny.yaml";   SCALE="";               LABEL="Tiny";;
-    1) CONFIG="configs/small.yaml";  SCALE="";               LABEL="Small";;
-    2) CONFIG="configs/medium.yaml"; SCALE="--scale medium";  LABEL="Medium";;
-    3) CONFIG="configs/large.yaml";  SCALE="--scale large";   LABEL="Large";;
+    0) CONFIG="configs/tiny.yaml";   LABEL="Tiny";;
+    1) CONFIG="configs/small.yaml";  LABEL="Small";;
+    2) CONFIG="configs/medium.yaml"; LABEL="Medium";;
+    3) CONFIG="configs/large.yaml";  LABEL="Large";;
 esac
 
 echo ""
@@ -159,7 +159,7 @@ run_step() {
 
 case $FLOW in
     0)  # 全流程
-        run_step "准备数据"          "python scripts/prepare_data.py $SCALE"
+        run_step "准备数据"          "python scripts/prepare_data.py"
         run_step "训练分词器"        "python scripts/train_tokenizer.py --config $CONFIG"
         run_step "预训练"            "python scripts/train.py --stage pretrain --config $CONFIG"
         run_step "SFT 指令微调"      "python scripts/train.py --stage sft --config $CONFIG"
@@ -167,7 +167,7 @@ case $FLOW in
         run_step "启动对话"          "python scripts/chat.py --config $CONFIG"
         ;;
     1)  # 仅预训练
-        run_step "准备数据"          "python scripts/prepare_data.py $SCALE"
+        run_step "准备数据"          "python scripts/prepare_data.py"
         run_step "训练分词器"        "python scripts/train_tokenizer.py --config $CONFIG"
         run_step "预训练"            "python scripts/train.py --stage pretrain --config $CONFIG"
         ;;
@@ -181,7 +181,7 @@ case $FLOW in
         run_step "启动对话"          "python scripts/chat.py --config $CONFIG"
         ;;
     5)  # 仅训练分词器
-        run_step "准备数据"          "python scripts/prepare_data.py $SCALE"
+        run_step "准备数据"          "python scripts/prepare_data.py"
         run_step "训练分词器"        "python scripts/train_tokenizer.py --config $CONFIG"
         ;;
     6)  # 运行测试

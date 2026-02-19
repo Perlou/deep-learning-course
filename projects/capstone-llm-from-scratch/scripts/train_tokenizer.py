@@ -61,6 +61,13 @@ def main():
         print("   请先运行: python scripts/prepare_data.py")
         sys.exit(1)
 
+    if os.path.getsize(args.corpus) == 0:
+        print(f"\n❌ 训练语料为空: {args.corpus}")
+        print(
+            "   可能是数据下载失败, 请检查网络后重新运行: python scripts/prepare_data.py"
+        )
+        sys.exit(1)
+
     import re
 
     # 训练分词器 (语料不足时自动降低 vocab_size)
