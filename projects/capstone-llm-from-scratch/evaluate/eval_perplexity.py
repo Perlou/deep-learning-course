@@ -75,7 +75,7 @@ def evaluate_perplexity(
             input_ids = batch["input_ids"].to(device)
             labels = batch["labels"].to(device)
 
-            logits, loss = model(input_ids, labels)
+            logits, loss, _ = model(input_ids, labels)
 
             # 统计有效 token 数
             n_tokens = (labels != -100).sum().item()

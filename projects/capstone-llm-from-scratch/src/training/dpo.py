@@ -19,6 +19,11 @@ DPO Loss:
   β     = 温度参数, 控制偏离参考模型的程度
   σ     = Sigmoid 函数
 
+训练改进:
+  - 验证集 + Early Stopping (按 accuracy 监控)
+  - 混合精度 GradScaler: CUDA FP16 防止梯度下溢
+  - TensorBoard: 可选训练可视化
+
 这是大语言模型训练的第三阶段:
   Pre-training → SFT → [DPO]
 """
@@ -39,6 +44,8 @@ from .trainer_utils import (
     save_checkpoint,
     load_checkpoint,
     TrainingLogger,
+    EarlyStopping,
+    create_grad_scaler,
 )
 
 
@@ -48,6 +55,7 @@ class DPOTrainer:
     Args:
         model:         GPT 模型 (将被训练)
         train_dataset: DPO 数据集
+        val_dataset:   验证集 (可选, 用于 Early Stopping)
         config:        训练配置字典
         output_dir:    输出目录
     """
@@ -57,6 +65,7 @@ class DPOTrainer:
         model: nn.Module,
         train_dataset,
         config: dict,
+        val_dataset=None,
         output_dir: str = "outputs/dpo",
     ):
         self.config = config
@@ -90,6 +99,17 @@ class DPOTrainer:
             drop_last=True,
         )
 
+        # 验证集
+        self.val_loader = None
+        if val_dataset is not None:
+            self.val_loader = DataLoader(
+                val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=0,
+                drop_last=False,
+            )
+
         # 优化器
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
@@ -112,10 +132,23 @@ class DPOTrainer:
             max_steps=self.max_steps,
         )
 
+        # GradScaler (CUDA FP16)
+        self.scaler = create_grad_scaler(self.device, self.dtype)
+
+        # Early Stopping (按 accuracy, 越大越好)
+        self.early_stopping = None
+        if self.val_loader is not None:
+            self.early_stopping = EarlyStopping(
+                patience=config.get("patience", 3),
+                min_delta=config.get("min_delta", 0.0),
+                mode="max",  # accuracy 越大越好
+            )
+
         # 日志
         self.logger = TrainingLogger(
             log_dir=os.path.join(output_dir, "logs"),
             log_every=config.get("log_every", 5),
+            use_tensorboard=config.get("use_tensorboard", False),
         )
 
         print(f"\n📋 DPO 配置:")
@@ -125,6 +158,8 @@ class DPOTrainer:
         print(f"  Epochs:          {self.epochs}")
         print(f"  Total steps:     {self.max_steps}")
         print(f"  LR:              {config.get('lr', 5e-6)}")
+        print(f"  Validation:      {'✅' if self.val_loader else '❌ (无验证集)'}")
+        print(f"  GradScaler:      {'✅' if self.scaler else '❌'}")
 
     def _compute_log_probs(
         self,
@@ -142,7 +177,7 @@ class DPOTrainer:
         Returns:
             对数概率之和 [batch]
         """
-        logits, _ = model(input_ids)  # [batch, seq, vocab]
+        logits, _, _ = model(input_ids)  # [batch, seq, vocab]
 
         # Shift: logits[:-1] 预测 labels[1:]
         shift_logits = logits[:, :-1, :].contiguous()
@@ -203,6 +238,57 @@ class DPOTrainer:
 
         return loss, metrics
 
+    @torch.no_grad()
+    def _evaluate_dpo(self) -> tuple[float, float]:
+        """在验证集上评估 DPO 指标
+
+        Returns:
+            (val_loss, val_accuracy)
+        """
+        self.model.eval()
+        total_loss = 0.0
+        total_accuracy = 0.0
+        total_batches = 0
+
+        for batch in self.val_loader:
+            chosen_ids = batch["chosen_input_ids"].to(self.device)
+            chosen_labels = batch["chosen_labels"].to(self.device)
+            rejected_ids = batch["rejected_input_ids"].to(self.device)
+            rejected_labels = batch["rejected_labels"].to(self.device)
+
+            with torch.amp.autocast(
+                device_type=self.device.type,
+                dtype=self.dtype,
+                enabled=(self.dtype != torch.float32),
+            ):
+                policy_chosen_logps = self._compute_log_probs(
+                    self.model, chosen_ids, chosen_labels
+                )
+                policy_rejected_logps = self._compute_log_probs(
+                    self.model, rejected_ids, rejected_labels
+                )
+                ref_chosen_logps = self._compute_log_probs(
+                    self.ref_model, chosen_ids, chosen_labels
+                )
+                ref_rejected_logps = self._compute_log_probs(
+                    self.ref_model, rejected_ids, rejected_labels
+                )
+
+            loss, metrics = self._dpo_loss(
+                policy_chosen_logps,
+                policy_rejected_logps,
+                ref_chosen_logps,
+                ref_rejected_logps,
+            )
+
+            total_loss += loss.item()
+            total_accuracy += metrics["accuracy"]
+            total_batches += 1
+
+        self.model.train()
+        n = max(total_batches, 1)
+        return total_loss / n, total_accuracy / n
+
     def train(self, sft_path: str = None):
         """执行 DPO 训练
 
@@ -214,10 +300,10 @@ class DPOTrainer:
             load_checkpoint(self.model, sft_path, device=self.device)
             print(f"✅ 已加载 SFT 权重: {sft_path}")
         else:
-            print(f"⚠️  未加载 SFT 权重")
+            print("⚠️  未加载 SFT 权重")
 
         # 创建参考模型 (冻结的 SFT 模型副本)
-        print(f"📋 创建参考模型 (冻结)...")
+        print("📋 创建参考模型 (冻结)...")
         self.ref_model = copy.deepcopy(self.model)
         self.ref_model.eval()
         for param in self.ref_model.parameters():
@@ -229,6 +315,7 @@ class DPOTrainer:
 
         self.model.train()
         step = 0
+        stopped_early = False
 
         for epoch in range(self.epochs):
             print(f"\n📅 Epoch {epoch + 1}/{self.epochs}")
@@ -278,12 +365,24 @@ class DPOTrainer:
 
                 # 梯度累积
                 scaled_loss = loss / self.gradient_accumulation
-                scaled_loss.backward()
+
+                if self.scaler:
+                    self.scaler.scale(scaled_loss).backward()
+                else:
+                    scaled_loss.backward()
+
                 micro_count += 1
 
                 if micro_count >= self.gradient_accumulation:
-                    grad_norm = clip_grad_norm(self.model, max_norm=1.0)
-                    self.optimizer.step()
+                    if self.scaler:
+                        self.scaler.unscale_(self.optimizer)
+                        grad_norm = clip_grad_norm(self.model, max_norm=1.0)
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
+                        grad_norm = clip_grad_norm(self.model, max_norm=1.0)
+                        self.optimizer.step()
+
                     lr = self.scheduler.step()
                     self.optimizer.zero_grad()
                     micro_count = 0
@@ -296,6 +395,15 @@ class DPOTrainer:
                         lr=lr,
                         grad_norm=grad_norm,
                     )
+
+                    # TensorBoard DPO 指标
+                    if self.logger.tb_writer:
+                        self.logger.tb_writer.add_scalar(
+                            "dpo/accuracy", metrics["accuracy"], step
+                        )
+                        self.logger.tb_writer.add_scalar(
+                            "dpo/reward_margin", metrics["reward_margin"], step
+                        )
 
                     if step % 5 == 0:
                         print(
@@ -317,6 +425,41 @@ class DPOTrainer:
                     f"accuracy={epoch_accuracy / epoch_steps:.2%}"
                 )
 
+            # ========== 验证 + Early Stopping (按 accuracy) ==========
+            if self.val_loader:
+                val_loss, val_accuracy = self._evaluate_dpo()
+                print(
+                    f"  📋 Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.2%} (step {step})"
+                )
+
+                if self.logger.tb_writer:
+                    self.logger.tb_writer.add_scalar("val/loss", val_loss, step)
+                    self.logger.tb_writer.add_scalar("val/accuracy", val_accuracy, step)
+
+                # 保存最优模型 (按 accuracy)
+                if (
+                    self.early_stopping.best_score is None
+                    or val_accuracy > self.early_stopping.best_score
+                ):
+                    save_checkpoint(
+                        model=self.model,
+                        optimizer=self.optimizer,
+                        scheduler=self.scheduler,
+                        step=step,
+                        loss=val_loss,
+                        save_path=os.path.join(self.output_dir, "best.pth"),
+                    )
+                    print(f"  💾 Best model saved (val_accuracy={val_accuracy:.2%})")
+
+                # 检查是否应该停止
+                if self.early_stopping(val_accuracy):
+                    print(
+                        f"\n⏹️  Early Stopping! patience={self.early_stopping.patience} 次未改善"
+                    )
+                    print(f"   最佳 val_accuracy: {self.early_stopping.best_score:.2%}")
+                    stopped_early = True
+                    break
+
         # 保存最终模型
         save_checkpoint(
             model=self.model,
@@ -335,5 +478,6 @@ class DPOTrainer:
         self.ref_model = None
 
         print(f"\n{'=' * 60}")
-        print(f"✅ DPO 训练完成! 共 {step} 步")
+        status = "Early Stopped" if stopped_early else "完成"
+        print(f"✅ DPO 训练{status}! 共 {step} 步")
         print(f"{'=' * 60}")

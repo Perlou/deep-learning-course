@@ -16,7 +16,6 @@ generate.py — 文本生成引擎
 
 import torch
 import torch.nn.functional as F
-from typing import Optional
 
 
 @torch.no_grad()
@@ -30,7 +29,7 @@ def generate(
     repetition_penalty: float = 1.1,
     eos_token_id: int = 2,
 ) -> torch.Tensor:
-    """自回归文本生成
+    """自回归文本生成 (使用 KV Cache 加速)
 
     Args:
         model:              GPT 模型
@@ -48,18 +47,18 @@ def generate(
     model.eval()
     device = input_ids.device
 
+    # 获取 max_seq_len
+    if hasattr(model, "config"):
+        max_seq_len = model.config.max_seq_len
+    else:
+        max_seq_len = 512
+
+    # ========== Prefill: 处理完整 prompt ==========
+    cond_ids = input_ids[:, -max_seq_len:]
+    logits, _, kv_caches = model(cond_ids, use_cache=True)
+    logits = logits[:, -1, :]  # [1, vocab_size]
+
     for _ in range(max_new_tokens):
-        # 截断到 max_seq_len
-        if hasattr(model, "config"):
-            max_seq_len = model.config.max_seq_len
-        else:
-            max_seq_len = 512
-        cond_ids = input_ids[:, -max_seq_len:]
-
-        # 前向传播获取 logits
-        logits, _ = model(cond_ids)
-        logits = logits[:, -1, :]  # 只取最后一个位置 [1, vocab_size]
-
         # 重复惩罚: 降低已出现 token 的概率
         if repetition_penalty != 1.0:
             for token_id in set(input_ids[0].tolist()):
@@ -70,43 +69,61 @@ def generate(
 
         # Temperature scaling
         if temperature > 0:
-            logits = logits / temperature
+            scaled_logits = logits / temperature
         else:
             # temperature=0 → greedy
             next_token = logits.argmax(dim=-1, keepdim=True)
             input_ids = torch.cat([input_ids, next_token], dim=1)
             if next_token.item() == eos_token_id:
                 break
+            # Decode 下一步
+            logits, _, kv_caches = model(
+                next_token, use_cache=True, kv_caches=kv_caches
+            )
+            logits = logits[:, -1, :]
             continue
 
         # Top-k filtering
         if top_k > 0:
-            top_k_vals, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            top_k_vals, _ = torch.topk(
+                scaled_logits, min(top_k, scaled_logits.size(-1))
+            )
             min_top_k = top_k_vals[:, -1].unsqueeze(-1)
-            logits = torch.where(
-                logits < min_top_k, torch.full_like(logits, float("-inf")), logits
+            scaled_logits = torch.where(
+                scaled_logits < min_top_k,
+                torch.full_like(scaled_logits, float("-inf")),
+                scaled_logits,
             )
 
         # Top-p (nucleus) filtering
         if 0.0 < top_p < 1.0:
-            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
             cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
-            # 找到累积概率超过 p 的位置, 把它们的 logits 设为 -inf
             sorted_mask = cumulative_probs - F.softmax(sorted_logits, dim=-1) > top_p
             sorted_logits[sorted_mask] = float("-inf")
 
-            # 恢复原始顺序
-            logits = sorted_logits.scatter(1, sorted_indices, sorted_logits)
+            scaled_logits = sorted_logits.scatter(1, sorted_indices, sorted_logits)
 
         # 采样
-        probs = F.softmax(logits, dim=-1)
+        probs = F.softmax(scaled_logits, dim=-1)
         next_token = torch.multinomial(probs, num_samples=1)
 
         input_ids = torch.cat([input_ids, next_token], dim=1)
 
         if next_token.item() == eos_token_id:
             break
+
+        # ========== Decode: 只输入新 token ==========
+        # 检查 cache 是否超过 max_seq_len
+        if kv_caches[0][0].shape[2] >= max_seq_len:
+            kv_caches = [
+                (k[:, :, -max_seq_len + 1 :, :], v[:, :, -max_seq_len + 1 :, :])
+                for k, v in kv_caches
+            ]
+
+        logits, _, kv_caches = model(next_token, use_cache=True, kv_caches=kv_caches)
+        logits = logits[:, -1, :]
 
     return input_ids
 

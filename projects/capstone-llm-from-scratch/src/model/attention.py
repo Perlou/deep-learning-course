@@ -18,8 +18,6 @@ GQA 的优势:
   - GQA: Training Generalized Multi-Query Transformer (https://arxiv.org/abs/2305.13245)
 """
 
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,16 +27,22 @@ from .rope import precompute_rope_frequencies, apply_rope
 
 
 class Attention(nn.Module):
-    """Multi-Head Self-Attention with GQA and RoPE
+    """Multi-Head Self-Attention with GQA, RoPE, KV Cache & Flash Attention
 
     内部流程:
       1. 线性投影: x → Q, K, V
       2. 分头: reshape 为 [batch, n_heads, seq, head_dim]
       3. 应用 RoPE: 对 Q, K 施加旋转位置编码
-      4. GQA 扩展: 将 KV heads 复制以匹配 Q heads 数量
-      5. 注意力计算: softmax(Q·K^T / √d) · V
-      6. 合并头: reshape 回 [batch, seq, d_model]
-      7. 输出投影: W_o
+      4. KV Cache: 推理时缓存 K/V，避免重复计算 (可选)
+      5. GQA 扩展: 将 KV heads 复制以匹配 Q heads 数量
+      6. Flash Attention: F.scaled_dot_product_attention() (PyTorch 2.0+)
+      7. 合并头: reshape 回 [batch, seq, d_model]
+      8. 输出投影: W_o
+
+    KV Cache 工作原理:
+      - Prefill 阶段: 输入完整 prompt, 计算并缓存所有 K/V
+      - Decode 阶段: 每步只输入 1 个新 token, 用新 K/V 拼接 cache
+      - 效果: 避免每步重算整个序列, 推理速度提升 5-10x
 
     Args:
         config: 模型配置
@@ -76,14 +80,19 @@ class Attention(nn.Module):
         self,
         x: torch.Tensor,
         mask: torch.Tensor = None,
-    ) -> torch.Tensor:
+        kv_cache: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         """
         Args:
-            x:    输入张量 [batch, seq_len, d_model]
-            mask: 注意力掩码 [seq_len, seq_len] (causal mask)
+            x:         输入张量 [batch, seq_len, d_model]
+            mask:      注意力掩码 [max_seq, max_seq] (causal mask)
+            kv_cache:  缓存的 (K, V) 张量, 用于推理加速
+            use_cache: 是否返回更新后的 KV cache
 
         Returns:
-            输出张量 [batch, seq_len, d_model]
+            output:       输出张量 [batch, seq_len, d_model]
+            new_kv_cache: 更新后的 (K, V) cache (仅 use_cache=True 时)
         """
         batch, seq_len, _ = x.shape
 
@@ -99,42 +108,73 @@ class Attention(nn.Module):
         # 现在形状: [batch, n_heads/n_kv_heads, seq_len, head_dim]
 
         # ========== Step 3: 应用 RoPE ==========
-        q = apply_rope(q, self.rope_cos, self.rope_sin)
-        k = apply_rope(k, self.rope_cos, self.rope_sin)
+        # RoPE 的 position offset: 有 cache 时从 cache 长度开始编号
+        if kv_cache is not None:
+            # decode 阶段: 当前 token 的位置 = 已缓存的长度
+            offset = kv_cache[0].shape[2]
+        else:
+            offset = 0
+        q = apply_rope(q, self.rope_cos, self.rope_sin, offset=offset)
+        k = apply_rope(k, self.rope_cos, self.rope_sin, offset=offset)
 
-        # ========== Step 4: GQA 扩展 ==========
+        # ========== Step 4: KV Cache ==========
+        if kv_cache is not None:
+            # 将新的 K/V 拼接到缓存
+            cached_k, cached_v = kv_cache
+            k = torch.cat([cached_k, k], dim=2)
+            v = torch.cat([cached_v, v], dim=2)
+
+        # 保存 cache (在 GQA 扩展之前, 节省内存)
+        new_kv_cache = (k, v) if use_cache else None
+
+        # ========== Step 5: GQA 扩展 ==========
         # 如果使用 GQA, 需要将 KV heads 复制到和 Q heads 相同数量
         if self.n_kv_groups > 1:
-            k = self._expand_kv(k)  # [batch, n_heads, seq, head_dim]
-            v = self._expand_kv(v)
+            k_expanded = self._expand_kv(k)  # [batch, n_heads, kv_len, head_dim]
+            v_expanded = self._expand_kv(v)
+        else:
+            k_expanded = k
+            v_expanded = v
 
-        # ========== Step 5: 注意力计算 ==========
-        # Q·K^T / √d
-        scale = math.sqrt(self.head_dim)
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) / scale
-        # [batch, n_heads, seq, seq]
+        # ========== Step 6: Flash Attention ==========
+        # 使用 PyTorch 2.0+ 的 F.scaled_dot_product_attention
+        # 自动选择最优 kernel: FlashAttention-2 / Memory-Efficient / Math
+        #
+        # 训练时: is_causal=True 自动生成 causal mask
+        # 推理 decode 时: Q 只有 1 个 token, 不需要 causal mask
+        kv_len = k_expanded.shape[2]
 
-        # 应用 causal mask (上三角为 -inf)
-        if mask is not None:
-            attn_weights = attn_weights + mask[:seq_len, :seq_len]
+        if seq_len == kv_len:
+            # Prefill / 训练: 完整序列, 需要 causal mask
+            output = F.scaled_dot_product_attention(
+                q,
+                k_expanded,
+                v_expanded,
+                attn_mask=None,
+                dropout_p=self.attn_dropout.p if self.training else 0.0,
+                is_causal=True,
+            )
+        else:
+            # Decode: Q 只有 1 个 token, 不需要 causal mask
+            output = F.scaled_dot_product_attention(
+                q,
+                k_expanded,
+                v_expanded,
+                attn_mask=None,
+                dropout_p=0.0,
+                is_causal=False,
+            )
+        # output: [batch, n_heads, seq_len, head_dim]
 
-        # softmax
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-
-        # 加权求和
-        output = torch.matmul(attn_weights, v)
-        # [batch, n_heads, seq, head_dim]
-
-        # ========== Step 6: 合并头 ==========
+        # ========== Step 7: 合并头 ==========
         output = output.transpose(1, 2).contiguous().view(batch, seq_len, -1)
         # [batch, seq, n_heads × head_dim]
 
-        # ========== Step 7: 输出投影 ==========
+        # ========== Step 8: 输出投影 ==========
         output = self.w_o(output)
         output = self.resid_dropout(output)
 
-        return output
+        return output, new_kv_cache
 
     def _expand_kv(self, x: torch.Tensor) -> torch.Tensor:
         """将 KV heads 扩展到与 Q heads 相同数量 (GQA)

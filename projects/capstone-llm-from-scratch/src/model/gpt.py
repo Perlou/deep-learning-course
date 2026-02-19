@@ -94,16 +94,21 @@ class GPT(nn.Module):
         self,
         input_ids: torch.Tensor,
         targets: torch.Tensor = None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        kv_caches: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, list | None]:
         """前向传播
 
         Args:
-            input_ids: token ID 序列 [batch, seq_len]
-            targets:   目标 token ID (用于计算 loss) [batch, seq_len], 可选
+            input_ids:  token ID 序列 [batch, seq_len]
+            targets:    目标 token ID (用于计算 loss) [batch, seq_len], 可选
+            kv_caches:  各层的 KV cache 列表, 长度 = n_layers
+            use_cache:  是否返回更新后的 KV caches
 
         Returns:
-            logits: 模型输出的 logits [batch, seq_len, vocab_size]
-            loss:   交叉熵损失 (仅当提供 targets 时)
+            logits:         模型输出的 logits [batch, seq_len, vocab_size]
+            loss:           交叉熵损失 (仅当提供 targets 时)
+            new_kv_caches:  更新后的各层 KV cache 列表 (仅 use_cache=True 时)
         """
         batch, seq_len = input_ids.shape
 
@@ -111,9 +116,15 @@ class GPT(nn.Module):
         x = self.token_embedding(input_ids)  # [batch, seq, d_model]
         x = self.embedding_dropout(x)
 
-        # N × Transformer Block
-        for layer in self.layers:
-            x = layer(x, mask=self.causal_mask)
+        # N × Transformer Block (带 KV Cache 透传)
+        new_kv_caches = [] if use_cache else None
+        for i, layer in enumerate(self.layers):
+            layer_cache = kv_caches[i] if kv_caches is not None else None
+            x, new_cache = layer(
+                x, mask=self.causal_mask, kv_cache=layer_cache, use_cache=use_cache
+            )
+            if use_cache:
+                new_kv_caches.append(new_cache)
 
         # Final RMSNorm
         x = self.final_norm(x)
@@ -132,7 +143,7 @@ class GPT(nn.Module):
                 ignore_index=-100,  # padding token 不计算 loss
             )
 
-        return logits, loss
+        return logits, loss, new_kv_caches
 
     def count_parameters(self) -> dict:
         """统计模型的实际参数量"""
@@ -157,7 +168,12 @@ class GPT(nn.Module):
         top_k: int = 0,
         top_p: float = 1.0,
     ) -> torch.Tensor:
-        """自回归文本生成
+        """自回归文本生成 (使用 KV Cache 加速)
+
+        KV Cache 工作流程:
+          1. Prefill: 输入完整 prompt, 计算并缓存所有层的 K/V
+          2. Decode:  每步只输入 1 个新 token, 拼接 cache 后计算注意力
+          3. 效果:    避免每步重算整个序列, 推理速度提升 5-10x
 
         Args:
             input_ids:      起始 token 序列 [1, seq_len]
@@ -171,56 +187,86 @@ class GPT(nn.Module):
         """
         self.eval()
 
-        for _ in range(max_new_tokens):
-            # 截断到 max_seq_len
-            idx_cond = (
-                input_ids
-                if input_ids.size(1) <= self.config.max_seq_len
-                else input_ids[:, -self.config.max_seq_len :]
-            )
+        # ========== Prefill: 处理完整 prompt ==========
+        idx_cond = (
+            input_ids
+            if input_ids.size(1) <= self.config.max_seq_len
+            else input_ids[:, -self.config.max_seq_len :]
+        )
+        logits, _, kv_caches = self(idx_cond, use_cache=True)
 
-            # 前向传播
-            logits, _ = self(idx_cond)
+        # 取最后一个位置的 logits 采样出第一个新 token
+        next_token = self._sample_token(logits[:, -1, :], temperature, top_k, top_p)
+        input_ids = torch.cat([input_ids, next_token], dim=-1)
 
-            # 取最后一个位置的 logits
-            logits = logits[:, -1, :]  # [batch, vocab_size]
+        # ========== Decode: 逐 token 生成 ==========
+        for _ in range(max_new_tokens - 1):
+            # 检查序列长度是否超过 max_seq_len
+            if kv_caches[0][0].shape[2] >= self.config.max_seq_len:
+                # 超过上限, 需要截断 cache
+                kv_caches = [
+                    (
+                        k[:, :, -self.config.max_seq_len + 1 :, :],
+                        v[:, :, -self.config.max_seq_len + 1 :, :],
+                    )
+                    for k, v in kv_caches
+                ]
 
-            # Temperature scaling
-            if temperature != 1.0:
-                logits = logits / temperature
-
-            # Top-K 采样
-            if top_k > 0:
-                top_k_values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < top_k_values[:, [-1]]] = float("-inf")
-
-            # Top-P (Nucleus) 采样
-            if top_p < 1.0:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(
-                    F.softmax(sorted_logits, dim=-1), dim=-1
-                )
-                # 找到累积概率超过 top_p 的位置
-                sorted_indices_to_remove = cumulative_probs > top_p
-                # 保留第一个超过阈值的 token
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[
-                    ..., :-1
-                ].clone()
-                sorted_indices_to_remove[..., 0] = False
-                # 将要移除的 token 的 logits 设为 -inf
-                indices_to_remove = sorted_indices_to_remove.scatter(
-                    1, sorted_indices, sorted_indices_to_remove
-                )
-                logits[indices_to_remove] = float("-inf")
+            # 只输入最新生成的 1 个 token
+            logits, _, kv_caches = self(next_token, use_cache=True, kv_caches=kv_caches)
 
             # 采样
-            probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-
-            # 拼接新 token
+            next_token = self._sample_token(logits[:, -1, :], temperature, top_k, top_p)
             input_ids = torch.cat([input_ids, next_token], dim=-1)
 
         return input_ids
+
+    def _sample_token(
+        self,
+        logits: torch.Tensor,
+        temperature: float = 1.0,
+        top_k: int = 0,
+        top_p: float = 1.0,
+    ) -> torch.Tensor:
+        """从 logits 采样一个 token
+
+        Args:
+            logits:      [batch, vocab_size]
+            temperature: 采样温度
+            top_k:       Top-K 截断
+            top_p:       Top-P 截断
+
+        Returns:
+            next_token: [batch, 1]
+        """
+        # Temperature scaling
+        if temperature != 1.0:
+            logits = logits / temperature
+
+        # Top-K 采样
+        if top_k > 0:
+            top_k_values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits[logits < top_k_values[:, [-1]]] = float("-inf")
+
+        # Top-P (Nucleus) 采样
+        if top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+            sorted_indices_to_remove = cumulative_probs > top_p
+            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[
+                ..., :-1
+            ].clone()
+            sorted_indices_to_remove[..., 0] = False
+            indices_to_remove = sorted_indices_to_remove.scatter(
+                1, sorted_indices, sorted_indices_to_remove
+            )
+            logits[indices_to_remove] = float("-inf")
+
+        # 采样
+        probs = F.softmax(logits, dim=-1)
+        next_token = torch.multinomial(probs, num_samples=1)
+
+        return next_token
 
 
 if __name__ == "__main__":
@@ -243,7 +289,7 @@ if __name__ == "__main__":
     input_ids = torch.randint(0, config.vocab_size, (batch_size, seq_len))
     targets = torch.randint(0, config.vocab_size, (batch_size, seq_len))
 
-    logits, loss = model(input_ids, targets)
+    logits, loss, _ = model(input_ids, targets)
     print(f"\n🔄 前向传播:")
     print(f"  Input:  {input_ids.shape}")
     print(f"  Logits: {logits.shape}")

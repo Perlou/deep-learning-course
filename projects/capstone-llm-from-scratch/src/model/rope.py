@@ -76,6 +76,7 @@ def apply_rope(
     x: torch.Tensor,
     cos: torch.Tensor,
     sin: torch.Tensor,
+    offset: int = 0,
 ) -> torch.Tensor:
     """将 RoPE 旋转应用到输入张量上
 
@@ -87,17 +88,22 @@ def apply_rope(
     然后乘以 e^(iθ) = cos(θ) + i·sin(θ)
 
     Args:
-        x:   输入张量 [batch, n_heads, seq_len, head_dim]
-        cos: 预计算的 cos 值 [seq_len, head_dim]
-        sin: 预计算的 sin 值 [seq_len, head_dim]
+        x:      输入张量 [batch, n_heads, seq_len, head_dim]
+        cos:    预计算的 cos 值 [max_seq_len, head_dim]
+        sin:    预计算的 sin 值 [max_seq_len, head_dim]
+        offset: 位置偏移量 (KV Cache decode 时使用)
+                prefill: offset=0, 位置 [0, 1, ..., seq_len-1]
+                decode:  offset=cache_len, 位置 [cache_len, ..., cache_len+seq_len-1]
 
     Returns:
         旋转后的张量, 形状与输入相同
     """
     seq_len = x.shape[2]
-    # 截取当前序列长度对应的 cos/sin
-    cos = cos[:seq_len].unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, head_dim]
-    sin = sin[:seq_len].unsqueeze(0).unsqueeze(0)
+    # 截取当前序列长度对应的 cos/sin (支持 offset)
+    cos = (
+        cos[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
+    )  # [1, 1, seq_len, head_dim]
+    sin = sin[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
 
     # 构造 "旋转配对" 的张量: 将 (x0, x1, x2, x3, ...) 变成 (-x1, x0, -x3, x2, ...)
     x_rotated = _rotate_half(x)

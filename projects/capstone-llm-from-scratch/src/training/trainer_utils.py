@@ -8,6 +8,10 @@ trainer_utils — 训练工具函数
   - Checkpoint 保存/加载
   - 训练日志记录
   - 设备检测
+  - 验证 & Early Stopping
+  - 混合精度 GradScaler
+  - 多卡并行 (DDP)
+  - TensorBoard 集成
 """
 
 import os
@@ -19,6 +23,8 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 # ============================================================
@@ -127,6 +133,179 @@ class CosineWarmupScheduler:
 
 
 # ============================================================
+# Early Stopping
+# ============================================================
+
+
+class EarlyStopping:
+    """Early Stopping 监控器
+
+    跟踪验证指标, patience 次未改善则建议停止训练。
+
+    Args:
+        patience:  容忍多少次不改善
+        min_delta: 改善幅度阈值 (loss 需下降 min_delta 才算改善)
+        mode:      'min' 表示越小越好 (loss), 'max' 表示越大越好 (accuracy)
+    """
+
+    def __init__(self, patience: int = 5, min_delta: float = 0.0, mode: str = "min"):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.mode = mode
+        self.counter = 0
+        self.best_score = None
+        self.should_stop = False
+
+    def __call__(self, metric: float) -> bool:
+        """检查是否应该停止训练
+
+        Args:
+            metric: 当前验证指标
+
+        Returns:
+            True 表示应该停止
+        """
+        if self.best_score is None:
+            self.best_score = metric
+            return False
+
+        if self.mode == "min":
+            improved = metric < self.best_score - self.min_delta
+        else:
+            improved = metric > self.best_score + self.min_delta
+
+        if improved:
+            self.best_score = metric
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.should_stop = True
+                return True
+
+        return False
+
+
+# ============================================================
+# 验证评估
+# ============================================================
+
+
+@torch.no_grad()
+def evaluate_loss(
+    model: nn.Module,
+    val_loader,
+    device: torch.device,
+    dtype: torch.dtype = torch.float32,
+    max_batches: int = None,
+) -> float:
+    """在验证集上计算平均 Loss
+
+    Args:
+        model:       GPT 模型
+        val_loader:  验证集 DataLoader
+        device:      计算设备
+        dtype:       计算精度
+        max_batches: 最多评估多少个 batch (None=全部)
+
+    Returns:
+        平均 loss
+    """
+    model.eval()
+    total_loss = 0.0
+    total_batches = 0
+
+    for i, batch in enumerate(val_loader):
+        if max_batches and i >= max_batches:
+            break
+
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
+
+        with torch.amp.autocast(
+            device_type=device.type,
+            dtype=dtype,
+            enabled=(dtype != torch.float32),
+        ):
+            _, loss, _ = model(input_ids, labels)
+
+        total_loss += loss.item()
+        total_batches += 1
+
+    model.train()
+    return total_loss / max(total_batches, 1)
+
+
+# ============================================================
+# 混合精度 GradScaler
+# ============================================================
+
+
+def create_grad_scaler(
+    device: torch.device, dtype: torch.dtype
+) -> torch.amp.GradScaler | None:
+    """为 CUDA FP16 创建 GradScaler
+
+    只在 CUDA + float16 时启用 (bfloat16 不需要)。
+    MPS / CPU 返回 None。
+
+    Returns:
+        GradScaler 或 None
+    """
+    if device.type == "cuda" and dtype == torch.float16:
+        return torch.amp.GradScaler("cuda")
+    return None
+
+
+# ============================================================
+# 多卡数据并行 (DDP)
+# ============================================================
+
+
+def setup_ddp(rank: int, world_size: int, backend: str = "nccl"):
+    """初始化 DDP 进程组
+
+    Args:
+        rank:       当前进程的 rank
+        world_size: 总进程数
+        backend:    通信后端 ('nccl' for GPU, 'gloo' for CPU)
+    """
+    os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", "localhost")
+    os.environ["MASTER_PORT"] = os.environ.get("MASTER_PORT", "29500")
+    dist.init_process_group(backend, rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+
+
+def cleanup_ddp():
+    """清理 DDP 进程组"""
+    if dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def is_main_process() -> bool:
+    """判断当前是否为主进程 (rank 0)
+
+    非 DDP 环境下返回 True。
+    """
+    if not dist.is_initialized():
+        return True
+    return dist.get_rank() == 0
+
+
+def wrap_model_ddp(model: nn.Module, device_id: int = None) -> nn.Module:
+    """可选地将模型包装为 DDP
+
+    只在 DDP 已初始化时包装。
+
+    Returns:
+        原始模型或 DDP 包装的模型
+    """
+    if not dist.is_initialized():
+        return model
+    return DDP(model, device_ids=[device_id] if device_id is not None else None)
+
+
+# ============================================================
 # 梯度裁剪
 # ============================================================
 
@@ -232,21 +411,38 @@ class TrainingLogger:
       - Loss, Learning Rate
       - 训练速度 (tokens/sec, steps/sec)
       - 预估剩余时间 (ETA)
+      - TensorBoard 可视化 (可选)
 
     Args:
-        log_dir:    日志保存目录
-        log_every:  每多少步打印一次日志
+        log_dir:          日志保存目录
+        log_every:        每多少步打印一次日志
+        use_tensorboard:  是否启用 TensorBoard
     """
 
-    def __init__(self, log_dir: str = None, log_every: int = 10):
+    def __init__(
+        self, log_dir: str = None, log_every: int = 10, use_tensorboard: bool = False
+    ):
         self.log_every = log_every
         self.log_dir = log_dir
         self.history = []
         self.start_time = time.time()
         self.step_start_time = time.time()
+        self.tb_writer = None
 
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
+
+        # TensorBoard
+        if use_tensorboard:
+            try:
+                from torch.utils.tensorboard import SummaryWriter
+
+                tb_dir = os.path.join(log_dir, "tensorboard") if log_dir else "runs"
+                self.tb_writer = SummaryWriter(tb_dir)
+                print(f"📊 TensorBoard 已启用: {tb_dir}")
+            except ImportError:
+                print("⚠️  tensorboard 未安装, 跳过 TensorBoard 集成")
+                print("   安装: pip install tensorboard")
 
     def log(
         self,
@@ -276,6 +472,17 @@ class TrainingLogger:
             entry["tokens_per_sec"] = tokens_per_step / max(step_time, 1e-6)
 
         self.history.append(entry)
+
+        # TensorBoard 写入
+        if self.tb_writer:
+            self.tb_writer.add_scalar("train/loss", loss, step)
+            self.tb_writer.add_scalar("train/lr", lr, step)
+            if grad_norm > 0:
+                self.tb_writer.add_scalar("train/grad_norm", grad_norm, step)
+            if "tokens_per_sec" in entry:
+                self.tb_writer.add_scalar(
+                    "train/tokens_per_sec", entry["tokens_per_sec"], step
+                )
 
         # 打印日志
         if step % self.log_every == 0 or step == max_steps - 1:
@@ -321,6 +528,12 @@ class TrainingLogger:
                 f.write(json.dumps(entry) + "\n")
         print(f"📝 训练日志保存: {filepath}")
 
+    def log_val(self, step: int, val_loss: float):
+        """记录验证指标"""
+        print(f"  📋 Val Loss: {val_loss:.4f} (step {step})")
+        if self.tb_writer:
+            self.tb_writer.add_scalar("val/loss", val_loss, step)
+
     def summary(self):
         """打印训练摘要"""
         if not self.history:
@@ -342,3 +555,7 @@ class TrainingLogger:
                 sum(e.get("tokens_per_sec", 0) for e in self.history) / total_steps
             )
             print(f"  平均速度: {avg_speed:.0f} tokens/sec")
+
+        # 关闭 TensorBoard
+        if self.tb_writer:
+            self.tb_writer.close()

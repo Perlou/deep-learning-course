@@ -266,7 +266,7 @@ async def _stream_generate(prompt: str, request):
     with torch.no_grad():
         for _ in range(request.max_tokens):
             cond_ids = input_tensor[:, -max_seq_len:]
-            logits, _ = model(cond_ids)
+            logits, _, _ = model(cond_ids)
             logits = logits[:, -1, :]
 
             # Temperature

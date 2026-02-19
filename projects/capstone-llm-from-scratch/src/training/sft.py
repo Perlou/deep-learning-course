@@ -10,13 +10,14 @@ SFT 与预训练的关键区别:
   2. Loss Mask: 只对 Assistant 回复部分计算 loss
   3. 学习率: 更小 (1e-5 vs 3e-4), 避免灾难性遗忘
   4. 训练时长: 更短 (几个 epoch vs 几万 steps)
+  5. 验证集 + Early Stopping: 防止过拟合
+  6. 混合精度 GradScaler: CUDA FP16 防止梯度下溢
 
 这是大语言模型训练的第二阶段:
   Pre-training → [SFT] → DPO
 """
 
 import os
-import sys
 
 import torch
 import torch.nn as nn
@@ -30,6 +31,9 @@ from .trainer_utils import (
     save_checkpoint,
     load_checkpoint,
     TrainingLogger,
+    EarlyStopping,
+    evaluate_loss,
+    create_grad_scaler,
 )
 
 
@@ -39,6 +43,7 @@ class SFTTrainer:
     Args:
         model:         GPT 模型
         train_dataset: SFT 数据集
+        val_dataset:   验证集 (可选, 用于 Early Stopping)
         config:        训练配置字典
         output_dir:    输出目录
     """
@@ -48,6 +53,7 @@ class SFTTrainer:
         model: nn.Module,
         train_dataset,
         config: dict,
+        val_dataset=None,
         output_dir: str = "outputs/sft",
     ):
         self.config = config
@@ -74,6 +80,17 @@ class SFTTrainer:
             drop_last=True,
         )
 
+        # 验证集
+        self.val_loader = None
+        if val_dataset is not None:
+            self.val_loader = DataLoader(
+                val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=0,
+                drop_last=False,
+            )
+
         # 优化器 (使用比预训练更小的学习率)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
@@ -96,10 +113,22 @@ class SFTTrainer:
             max_steps=self.max_steps,
         )
 
+        # GradScaler (CUDA FP16)
+        self.scaler = create_grad_scaler(self.device, self.dtype)
+
+        # Early Stopping
+        self.early_stopping = None
+        if self.val_loader is not None:
+            self.early_stopping = EarlyStopping(
+                patience=config.get("patience", 3),
+                min_delta=config.get("min_delta", 0.0),
+            )
+
         # 日志
         self.logger = TrainingLogger(
             log_dir=os.path.join(output_dir, "logs"),
             log_every=config.get("log_every", 10),
+            use_tensorboard=config.get("use_tensorboard", False),
         )
 
         print(f"\n📋 SFT 配置:")
@@ -109,6 +138,8 @@ class SFTTrainer:
         print(f"  Steps/epoch:     {self.steps_per_epoch}")
         print(f"  Total steps:     {self.max_steps}")
         print(f"  LR:              {config.get('lr', 1e-5)}")
+        print(f"  Validation:      {'✅' if self.val_loader else '❌ (无验证集)'}")
+        print(f"  GradScaler:      {'✅' if self.scaler else '❌'}")
 
     def train(self, pretrained_path: str = None):
         """执行 SFT 训练
@@ -121,7 +152,7 @@ class SFTTrainer:
             load_checkpoint(self.model, pretrained_path, device=self.device)
             print(f"✅ 已加载预训练权重: {pretrained_path}")
         else:
-            print(f"⚠️  未加载预训练权重, 从随机初始化开始 SFT")
+            print("⚠️  未加载预训练权重, 从随机初始化开始 SFT")
 
         print(f"\n{'=' * 60}")
         print(f"🚀 开始 SFT 训练 ({self.epochs} epochs, {self.max_steps} steps)")
@@ -129,13 +160,13 @@ class SFTTrainer:
 
         self.model.train()
         step = 0
+        stopped_early = False
 
         for epoch in range(self.epochs):
             print(f"\n📅 Epoch {epoch + 1}/{self.epochs}")
             epoch_loss = 0.0
             epoch_steps = 0
 
-            data_iter = iter(self.train_loader)
             self.optimizer.zero_grad()
             micro_count = 0
 
@@ -143,23 +174,35 @@ class SFTTrainer:
                 input_ids = batch["input_ids"].to(self.device)
                 labels = batch["labels"].to(self.device)
 
-                # 前向传播
+                # 前向传播 (混合精度)
                 with torch.amp.autocast(
                     device_type=self.device.type,
                     dtype=self.dtype,
                     enabled=(self.dtype != torch.float32),
                 ):
-                    logits, loss = self.model(input_ids, labels)
+                    logits, loss, _ = self.model(input_ids, labels)
 
                 # 梯度累积
                 scaled_loss = loss / self.gradient_accumulation
-                scaled_loss.backward()
+
+                if self.scaler:
+                    self.scaler.scale(scaled_loss).backward()
+                else:
+                    scaled_loss.backward()
+
                 micro_count += 1
 
                 if micro_count >= self.gradient_accumulation:
                     # 参数更新
-                    grad_norm = clip_grad_norm(self.model, max_norm=1.0)
-                    self.optimizer.step()
+                    if self.scaler:
+                        self.scaler.unscale_(self.optimizer)
+                        grad_norm = clip_grad_norm(self.model, max_norm=1.0)
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
+                        grad_norm = clip_grad_norm(self.model, max_norm=1.0)
+                        self.optimizer.step()
+
                     lr = self.scheduler.step()
                     self.optimizer.zero_grad()
                     micro_count = 0
@@ -183,6 +226,37 @@ class SFTTrainer:
             if epoch_steps > 0:
                 avg_epoch_loss = epoch_loss / epoch_steps
                 print(f"  Epoch {epoch + 1} 平均 loss: {avg_epoch_loss:.4f}")
+
+            # ========== 验证 + Early Stopping (每 epoch) ==========
+            if self.val_loader:
+                val_loss = evaluate_loss(
+                    self.model, self.val_loader, self.device, self.dtype
+                )
+                self.logger.log_val(step, val_loss)
+
+                # 保存最优模型
+                if (
+                    self.early_stopping.best_score is None
+                    or val_loss < self.early_stopping.best_score
+                ):
+                    save_checkpoint(
+                        model=self.model,
+                        optimizer=self.optimizer,
+                        scheduler=self.scheduler,
+                        step=step,
+                        loss=val_loss,
+                        save_path=os.path.join(self.output_dir, "best.pth"),
+                    )
+                    print(f"  💾 Best model saved (val_loss={val_loss:.4f})")
+
+                # 检查是否应该停止
+                if self.early_stopping(val_loss):
+                    print(
+                        f"\n⏹️  Early Stopping! patience={self.early_stopping.patience} 次未改善"
+                    )
+                    print(f"   最佳 val_loss: {self.early_stopping.best_score:.4f}")
+                    stopped_early = True
+                    break
 
             # 每个 epoch 结束保存 checkpoint
             save_checkpoint(
@@ -208,5 +282,6 @@ class SFTTrainer:
         self.logger.summary()
 
         print(f"\n{'=' * 60}")
-        print(f"✅ SFT 训练完成! 共 {step} 步")
+        status = "Early Stopped" if stopped_early else "完成"
+        print(f"✅ SFT 训练{status}! 共 {step} 步")
         print(f"{'=' * 60}")

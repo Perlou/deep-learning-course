@@ -65,24 +65,32 @@ class TransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         mask: torch.Tensor = None,
-    ) -> torch.Tensor:
+        kv_cache: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         """
         Args:
-            x:    输入张量 [batch, seq_len, d_model]
-            mask: 注意力 causal mask
+            x:         输入张量 [batch, seq_len, d_model]
+            mask:      注意力 causal mask
+            kv_cache:  该层的 KV cache (推理用)
+            use_cache: 是否返回更新后的 KV cache
 
         Returns:
-            输出张量 [batch, seq_len, d_model]
+            output:       输出张量 [batch, seq_len, d_model]
+            new_kv_cache: 更新后的 KV cache
         """
         # Attention block with residual connection
         # h = x + Attention(RMSNorm(x))
-        h = x + self.attention(self.attn_norm(x), mask)
+        attn_out, new_kv_cache = self.attention(
+            self.attn_norm(x), mask, kv_cache=kv_cache, use_cache=use_cache
+        )
+        h = x + attn_out
 
         # FFN block with residual connection
         # out = h + FFN(RMSNorm(h))
         out = h + self.feedforward(self.ffn_norm(h))
 
-        return out
+        return out, new_kv_cache
 
 
 if __name__ == "__main__":
@@ -93,7 +101,7 @@ if __name__ == "__main__":
     mask = torch.full((config.max_seq_len, config.max_seq_len), float("-inf"))
     mask = torch.triu(mask, diagonal=1)
 
-    y = block(x, mask)
+    y, _ = block(x, mask)
 
     print("TransformerBlock:")
     print(f"  输入: {x.shape}")
@@ -106,6 +114,6 @@ if __name__ == "__main__":
     for name, param in block_zero.named_parameters():
         if "weight" in name and "norm" not in name:
             param.data.zero_()
-    y_zero = block_zero(x, mask)
+    y_zero, _ = block_zero(x, mask)
     print(f"\n  残差连接验证 (权重全0时, 输出 ≈ 输入):")
     print(f"  max diff: {(y_zero - x).abs().max().item():.8f}")

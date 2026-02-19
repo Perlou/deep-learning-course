@@ -13,15 +13,15 @@ pretrain.py — 预训练 Trainer
   - 学习率: Cosine Annealing with Linear Warmup
   - 梯度累积: 模拟大 batch size
   - 梯度裁剪: 防止梯度爆炸
-  - 混合精度: 可选 (MPS/CUDA)
+  - 混合精度: 可选 (MPS/CUDA) + GradScaler
+  - 验证集 + Early Stopping: 防止过拟合
+  - TensorBoard: 可选训练可视化
 
 这是大语言模型训练的第一阶段:
   Pre-training → SFT → DPO
 """
 
 import os
-import sys
-import time
 
 import torch
 import torch.nn as nn
@@ -35,6 +35,9 @@ from .trainer_utils import (
     save_checkpoint,
     load_checkpoint,
     TrainingLogger,
+    EarlyStopping,
+    evaluate_loss,
+    create_grad_scaler,
 )
 
 
@@ -42,10 +45,11 @@ class PreTrainer:
     """预训练 Trainer
 
     Args:
-        model:       GPT 模型
+        model:         GPT 模型
         train_dataset: 预训练数据集
-        config:      训练配置字典
-        output_dir:  输出目录
+        val_dataset:   验证集 (可选, 用于 Early Stopping)
+        config:        训练配置字典
+        output_dir:    输出目录
     """
 
     def __init__(
@@ -53,6 +57,7 @@ class PreTrainer:
         model: nn.Module,
         train_dataset,
         config: dict,
+        val_dataset=None,
         output_dir: str = "outputs/pretrain",
     ):
         self.config = config
@@ -76,10 +81,21 @@ class PreTrainer:
             train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=0,  # MacBook 上 num_workers>0 可能有问题
+            num_workers=0,
             drop_last=True,
             pin_memory=(self.device.type == "cuda"),
         )
+
+        # 验证集
+        self.val_loader = None
+        if val_dataset is not None:
+            self.val_loader = DataLoader(
+                val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=0,
+                drop_last=False,
+            )
 
         # 优化器: AdamW
         self.optimizer = torch.optim.AdamW(
@@ -99,14 +115,26 @@ class PreTrainer:
             max_steps=self.max_steps,
         )
 
+        # GradScaler (CUDA FP16)
+        self.scaler = create_grad_scaler(self.device, self.dtype)
+
+        # Early Stopping
+        self.eval_every = config.get("eval_every", 500)
+        self.early_stopping = None
+        if self.val_loader is not None:
+            self.early_stopping = EarlyStopping(
+                patience=config.get("patience", 5),
+                min_delta=config.get("min_delta", 0.0),
+            )
+
         # Checkpoint
         self.save_every = config.get("save_every", 1000)
-        self.eval_every = config.get("eval_every", 500)
 
         # 日志
         self.logger = TrainingLogger(
             log_dir=os.path.join(output_dir, "logs"),
             log_every=config.get("log_every", 10),
+            use_tensorboard=config.get("use_tensorboard", False),
         )
 
         print(f"\n📋 预训练配置:")
@@ -119,6 +147,9 @@ class PreTrainer:
         )
         print(f"  Warmup steps:    {config.get('warmup_steps', 500)}")
         print(f"  Save every:      {self.save_every} steps")
+        print(f"  Eval every:      {self.eval_every} steps")
+        print(f"  Validation:      {'✅' if self.val_loader else '❌ (无验证集)'}")
+        print(f"  GradScaler:      {'✅' if self.scaler else '❌'}")
 
     def train(self, resume_from: str = None):
         """执行预训练
@@ -147,7 +178,6 @@ class PreTrainer:
         self.model.train()
         step = start_step
         data_iter = iter(self.train_loader)
-        accumulation_loss = 0.0
 
         while step < self.max_steps:
             # ========== 梯度累积循环 ==========
@@ -165,25 +195,33 @@ class PreTrainer:
                 input_ids = batch["input_ids"].to(self.device)
                 labels = batch["labels"].to(self.device)
 
-                # 前向传播
+                # 前向传播 (混合精度)
                 with torch.amp.autocast(
                     device_type=self.device.type,
                     dtype=self.dtype,
                     enabled=(self.dtype != torch.float32),
                 ):
-                    logits, loss = self.model(input_ids, labels)
+                    logits, loss, _ = self.model(input_ids, labels)
 
                 # 梯度累积: loss 除以累积步数
                 scaled_loss = loss / self.gradient_accumulation
-                scaled_loss.backward()
+
+                if self.scaler:
+                    self.scaler.scale(scaled_loss).backward()
+                else:
+                    scaled_loss.backward()
+
                 batch_loss += loss.item()
 
             # ========== 参数更新 ==========
-            # 梯度裁剪
-            grad_norm = clip_grad_norm(self.model, max_norm=1.0)
-
-            # 优化器步进
-            self.optimizer.step()
+            if self.scaler:
+                self.scaler.unscale_(self.optimizer)
+                grad_norm = clip_grad_norm(self.model, max_norm=1.0)
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                grad_norm = clip_grad_norm(self.model, max_norm=1.0)
+                self.optimizer.step()
 
             # 学习率更新
             lr = self.scheduler.step()
@@ -200,6 +238,36 @@ class PreTrainer:
                 tokens_per_step=tokens_per_step,
                 grad_norm=grad_norm,
             )
+
+            # ========== 验证 + Early Stopping ==========
+            if self.val_loader and (step + 1) % self.eval_every == 0:
+                val_loss = evaluate_loss(
+                    self.model, self.val_loader, self.device, self.dtype
+                )
+                self.logger.log_val(step, val_loss)
+
+                # 保存最优模型
+                if (
+                    self.early_stopping.best_score is None
+                    or val_loss < self.early_stopping.best_score
+                ):
+                    save_checkpoint(
+                        model=self.model,
+                        optimizer=self.optimizer,
+                        scheduler=self.scheduler,
+                        step=step + 1,
+                        loss=val_loss,
+                        save_path=os.path.join(self.output_dir, "best.pth"),
+                    )
+                    print(f"  💾 Best model saved (val_loss={val_loss:.4f})")
+
+                # 检查是否应该停止
+                if self.early_stopping(val_loss):
+                    print(
+                        f"\n⏹️  Early Stopping! patience={self.early_stopping.patience} 次未改善"
+                    )
+                    print(f"   最佳 val_loss: {self.early_stopping.best_score:.4f}")
+                    break
 
             # ========== Checkpoint ==========
             if (step + 1) % self.save_every == 0:
