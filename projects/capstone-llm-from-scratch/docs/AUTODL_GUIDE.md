@@ -1,6 +1,6 @@
 # 🖥️ AutoDL 租赁与训练攻略
 
-> 从零开始在 AutoDL 平台训练 ClearMind-Plus (~468M) 大语言模型的完整指南。
+> 从零开始在 AutoDL 平台训练 ClearMind 大语言模型的完整指南。
 
 ---
 
@@ -47,47 +47,78 @@
 
 ---
 
-## Step 3: 上传代码
+## Step 3: 开启网络加速 ⚡
 
-实例启动后, 有 3 种方式上传项目:
-
-### 方式一: Git Clone (推荐 ✅)
+> ⚠️ **重要!** AutoDL 服务器直连 GitHub / HuggingFace 极慢甚至超时。务必先开启加速。
 
 ```bash
 # SSH 连接到 AutoDL 服务器
 ssh -p <端口号> root@<服务器IP>
 
-# 进入工作目录
+# ====== 方法 1: AutoDL 学术加速 (推荐 ✅) ======
+# 大部分 AutoDL 镜像内置了网络加速脚本, 启用后 GitHub/HuggingFace 都会变快
+source /etc/network_turbo
+
+# ====== 方法 2: 手动设置 HuggingFace 镜像 ======
+# 如果没有 network_turbo, 手动设置也可以
+export HF_ENDPOINT=https://hf-mirror.com
+
+# 建议写入 bashrc, 每次登录自动生效
+echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.bashrc
+source ~/.bashrc
+```
+
+---
+
+## Step 4: 上传代码
+
+### 方式一: Git Clone (推荐 ✅)
+
+```bash
 cd /root/autodl-tmp
 
-# Clone 项目
-git clone https://github.com/Perlou/deep-learning-course.git
+# 浅克隆 (最快, 只下载最新版本)
+git clone --depth 1 https://github.com/Perlou/deep-learning-course.git
 cd deep-learning-course/projects/capstone-llm-from-scratch
 ```
 
-### 方式二: AutoDL 文件上传
+> **Git Clone 很慢?** 试试以下方案:
+>
+> ```bash
+> # 方案 1: 先启用学术加速
+> source /etc/network_turbo
+> git clone --depth 1 https://github.com/Perlou/deep-learning-course.git
+>
+> # 方案 2: 强制 HTTP/1.1
+> git config --global http.version HTTP/1.1
+> git clone --depth 1 https://github.com/Perlou/deep-learning-course.git
+>
+> # 方案 3: 用 gitclone 镜像
+> git clone --depth 1 https://gitclone.com/github.com/Perlou/deep-learning-course.git
+> ```
 
-打开 AutoDL 控制台 → 文件管理 → 上传整个项目文件夹到 `/root/autodl-tmp/`
-
-### 方式三: SCP 命令
+### 方式二: SCP 上传
 
 ```bash
 # 在本地执行
 scp -P <端口号> -r capstone-llm-from-scratch root@<服务器IP>:/root/autodl-tmp/
 ```
 
+### 方式三: AutoDL 文件管理器
+
+AutoDL 控制台 → 文件管理 → 上传整个项目文件夹到 `/root/autodl-tmp/`
+
 ---
 
-## Step 4: 环境配置
+## Step 5: 环境配置
 
 ```bash
-# SSH 连接到服务器后
 cd /root/autodl-tmp/deep-learning-course/projects/capstone-llm-from-scratch
 
 # 安装依赖
 pip install -r requirements.txt
 
-# 验证 GPU
+# 验证 GPU 环境
 python -c "
 import torch
 print(f'PyTorch:  {torch.__version__}')
@@ -101,7 +132,7 @@ print(f'BFloat16: {torch.cuda.is_bf16_supported()}')
 预期输出:
 
 ```
-PyTorch:  2.1.x
+PyTorch:  2.x.x
 CUDA:     True
 GPU:      NVIDIA A800-SXM4-80GB
 显存:     80 GB
@@ -110,61 +141,66 @@ BFloat16: True
 
 ---
 
-## Step 5: 准备数据
-
-```bash
-# 下载真实大规模数据集 (AutoDL 服务器网速很快)
-python scripts/prepare_data.py --scale large
-```
-
-> 如果 HuggingFace 下载慢, AutoDL 支持 HF 镜像加速:
->
-> ```bash
-> export HF_ENDPOINT=https://hf-mirror.com
-> python scripts/prepare_data.py --scale large
-> ```
-
----
-
 ## Step 6: 一键训练
 
-### 方式一: 一键脚本 (推荐)
+### 方式一: 交互式启动脚本 (推荐 ✅)
 
 ```bash
-# 全流程: 分词器 → 预训练 → SFT → DPO
-bash scripts/autodl_train.sh large
+bash run.sh
 ```
 
-### 方式二: 分步执行
+脚本会引导你选择:
+
+1. **模型规模** — Tiny / Small / Medium / Large
+2. **训练流程** — 全流程、仅预训练、从 SFT/DPO 继续等
+
+> 💡 建议先选 **Tiny** 跑一遍全流程 (2-5 分钟) 验证环境无问题, 再切到 Large。
+
+### 方式二: 自动化训练脚本
 
 ```bash
-# 1. 训练分词器
+# 全流程: 数据 → 分词器 → 预训练 → SFT → DPO
+bash scripts/autodl_train.sh large
+
+# 只跑某个阶段
+bash scripts/autodl_train.sh large pretrain
+bash scripts/autodl_train.sh large sft
+bash scripts/autodl_train.sh large dpo
+```
+
+### 方式三: 手动分步执行
+
+```bash
+# 1. 准备数据
+python scripts/prepare_data.py --scale large
+
+# 2. 训练分词器
 python scripts/train_tokenizer.py --config configs/large.yaml
 
-# 2. 预训练 (最耗时, ~12-20 小时)
+# 3. 预训练 (最耗时, ~12-20 小时)
 python scripts/train.py --stage pretrain --config configs/large.yaml
 
-# 3. SFT 指令微调 (~1-2 小时)
+# 4. SFT 指令微调 (~1-2 小时)
 python scripts/train.py --stage sft --config configs/large.yaml
 
-# 4. DPO 偏好对齐 (~0.5-1 小时)
+# 5. DPO 偏好对齐 (~0.5-1 小时)
 python scripts/train.py --stage dpo --config configs/large.yaml
 ```
 
-### 方式三: 后台运行 (防止 SSH 断连)
+### ⚠️ 用 tmux 防止 SSH 断连
 
 ```bash
-# 使用 tmux 保持会话
+# 创建 tmux 会话
 tmux new -s train
 
-# 在 tmux 内执行训练
-bash scripts/autodl_train.sh large
+# 在 tmux 里执行训练
+bash run.sh
 
-# 断开 tmux (训练继续): Ctrl+B, 然后按 D
+# 断开会话 (训练继续): Ctrl+B, 然后按 D
 # 重新连接: tmux attach -t train
 ```
 
-> ⚠️ **强烈建议用 tmux!** SSH 断连不会中断训练。
+> ⚠️ **务必用 tmux!** 否则 SSH 断连会导致训练中断, 之前的进度全部浪费。
 
 ---
 
@@ -177,7 +213,7 @@ watch -n 1 nvidia-smi
 # 查看训练日志
 tail -f outputs/pretrain/training.log
 
-# 查看显存占用 (预期 ~50-60 GB)
+# 查看显存占用
 nvidia-smi --query-gpu=memory.used --format=csv
 ```
 
@@ -194,7 +230,7 @@ nvidia-smi --query-gpu=memory.used --format=csv
 ## Step 8: 评估模型
 
 ```bash
-# 一键对比各阶段 PPL
+# 困惑度对比各阶段
 python evaluate/eval_perplexity.py --compare
 
 # 综合评估
@@ -237,7 +273,6 @@ AutoDL 控制台 → 文件管理 → 找到 `outputs/` 目录 → 逐个下载
 ### 方式三: 上传到 HuggingFace Hub (展示 + 分享)
 
 ```bash
-# 在 AutoDL 服务器上执行
 pip install huggingface_hub
 
 # 登录 (需提前在 https://huggingface.co/settings/tokens 创建 Token)
@@ -248,14 +283,6 @@ huggingface-cli upload Perlou/ClearMind-Plus outputs/dpo/final.pth
 huggingface-cli upload Perlou/ClearMind-Plus outputs/tokenizer/tokenizer.model
 ```
 
-上传后任何人都可以在 `https://huggingface.co/Perlou/ClearMind-Plus` 查看和下载你的模型。
-
-### 方式四: GitHub Releases
-
-1. 进入你的 GitHub 仓库 → Releases → Create new release
-2. 上传 `final.pth` 和 `tokenizer.model` 作为附件
-3. 适合 < 2GB 的单个文件
-
 ### 下载后在本地使用
 
 ```bash
@@ -263,11 +290,7 @@ huggingface-cli upload Perlou/ClearMind-Plus outputs/tokenizer/tokenizer.model
 # outputs/tokenizer/tokenizer.model
 # outputs/dpo/final.pth
 
-# 直接对话
 python scripts/chat.py --config configs/large.yaml
-
-# 评估效果
-python evaluate/eval_benchmark.py --config configs/large.yaml
 ```
 
 ---
@@ -277,50 +300,73 @@ python evaluate/eval_benchmark.py --config configs/large.yaml
 > ⚠️ **训练完成后务必关机!** AutoDL 按秒计费, 忘记关机会持续扣费。
 
 1. ✅ 确认模型已下载/上传保存
-2. AutoDL 控制台 → **关机** (数据保留, 下次可继续用) 或 **释放** (彻底删除, 停止一切费用)
+2. AutoDL 控制台 → **关机** (数据保留) 或 **释放** (彻底删除)
 
-> **关机 vs 释放**: 关机后数据盘保留 (但会收少量存储费), 释放后所有数据永久删除。建议确认模型已保存后直接**释放**。
+> **关机 vs 释放**: 关机后数据盘保留 (但收少量存储费), 释放后所有数据永久删除。确认模型已保存后建议直接**释放**。
 
 ---
 
 ## 💡 省钱技巧
 
-| 技巧                           | 节省                    |
-| ------------------------------ | ----------------------- |
-| 先用 Tiny/Small 在本地验证流程 | 避免浪费 GPU 时间调 bug |
-| 用 `tmux` 防断连               | 避免重跑浪费            |
-| 不训练时立即关机               | 停止计费                |
-| 选择竞价实例                   | 降低约 50% 费用         |
-| 选择凌晨时段训练               | GPU 空闲, 不容易排队    |
-| 只下载 `final.pth`             | checkpoint 文件可不下载 |
+| 技巧                             | 效果                    |
+| -------------------------------- | ----------------------- |
+| 本地先用 Tiny 验证全流程         | 避免在 GPU 上调 bug     |
+| `source /etc/network_turbo`      | GitHub/HF 下载提速 10x+ |
+| 用 `tmux` 防断连                 | 避免重跑浪费            |
+| 不训练时立即关机                 | 停止计费                |
+| 选择竞价实例                     | 降低约 50% 费用         |
+| 凌晨时段训练                     | GPU 空闲, 不易排队      |
+| 只下载 `final.pth` + `tokenizer` | checkpoint 可不保留     |
 
 ---
 
 ## ❓ 常见问题
 
-**Q: 显存不够 (OOM) 怎么办?**
+**Q: GitHub clone 失败或很慢?**
 
 ```bash
-# 减小 batch_size, 增大 gradient_accumulation
-python scripts/train.py --stage pretrain --config configs/large.yaml --batch_size 12 --gradient_accumulation 16
+# 启用学术加速
+source /etc/network_turbo
+
+# 浅克隆
+git clone --depth 1 https://github.com/Perlou/deep-learning-course.git
+
+# 如果还不行, 用镜像
+git clone --depth 1 https://gitclone.com/github.com/Perlou/deep-learning-course.git
 ```
 
-**Q: 训练中断了怎么办?**
+**Q: HuggingFace 数据集下载失败?**
+
+```bash
+# 设置 HF 镜像
+export HF_ENDPOINT=https://hf-mirror.com
+python scripts/prepare_data.py --scale large
+```
+
+**Q: 显存不够 (OOM)?**
+
+```bash
+# 减小 batch_size, 增大 gradient_accumulation 保持等效 batch 不变
+python scripts/train.py --stage pretrain --config configs/large.yaml \
+    --batch_size 12 --gradient_accumulation 16
+```
+
+**Q: 训练中断了怎么恢复?**
 
 ```bash
 # 从最近的 checkpoint 恢复
-python scripts/train.py --stage pretrain --config configs/large.yaml --resume outputs/pretrain/checkpoint_latest.pth
+python scripts/train.py --stage pretrain --config configs/large.yaml \
+    --resume outputs/pretrain/checkpoint_latest.pth
 ```
 
-**Q: HuggingFace 下载慢?**
+**Q: `torch.amp.GradScaler` 报错?**
 
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-```
+AutoDL 镜像自带的 PyTorch 版本可能较旧 (< 2.1)。项目已内置兼容处理, 如遇到请 `git pull` 更新到最新代码。
 
-**Q: 如何在本地使用训练好的模型?**
+**Q: `run.sh` 按 Enter 后没反应?**
 
-```bash
-# 下载 outputs/ 后在本地运行
-python scripts/chat.py --config configs/large.yaml
-```
+确保使用最新代码 (`git pull`)。旧版有一个 `set -e` + 算术运算的兼容性 bug, 已修复。
+
+**Q: MNBVC 中文数据集加载失败?**
+
+这是因为 MNBVC 使用了旧版自定义加载脚本, 新版 `datasets` 库不再支持。不影响训练 — TinyStories 英文数据足够跑通全流程。
