@@ -74,7 +74,7 @@ echo ""
 # ---- 执行步骤 ----
 step=0
 run_step() {
-    ((step++))
+    step=$((step + 1))
     echo -e "${YELLOW}  [${step}] ▶ $1 ...${NC}"
     eval "$2"
     echo -e "${GREEN}  [${step}] ✅ $1 完成${NC}\n"
