@@ -109,6 +109,54 @@ class ClearMindTokenizer:
         """将 token 字符串转为 token ID"""
         return self.sp.PieceToId(piece)
 
+    def check_coverage(self, texts: list[str]) -> dict:
+        """检测文本的 OOV (未知 token) 覆盖率
+
+        对给定文本列表进行编码，统计 <unk> token 的占比。
+        当 unk 比率 > 5% 时打印警告。
+
+        Args:
+            texts: 待检测的文本列表
+
+        Returns:
+            dict with:
+              total_tokens: 总 token 数
+              unk_tokens:   unk token 数
+              unk_ratio:    unk 占比 (0.0 ~ 1.0)
+              coverage:     覆盖率 (1.0 - unk_ratio)
+        """
+        total_tokens = 0
+        unk_tokens = 0
+
+        for text in texts:
+            ids = self.encode(text)
+            total_tokens += len(ids)
+            unk_tokens += sum(1 for i in ids if i == self.unk_id)
+
+        if total_tokens == 0:
+            return {
+                "total_tokens": 0,
+                "unk_tokens": 0,
+                "unk_ratio": 0.0,
+                "coverage": 1.0,
+            }
+
+        unk_ratio = unk_tokens / total_tokens
+        coverage = 1.0 - unk_ratio
+
+        if unk_ratio > 0.05:
+            print(
+                f"⚠️  OOV 警告: unk 比率 {unk_ratio:.2%} (共 {unk_tokens}/{total_tokens} tokens)"
+            )
+            print("   建议: 增大词表大小或增加训练数据覆盖率")
+
+        return {
+            "total_tokens": total_tokens,
+            "unk_tokens": unk_tokens,
+            "unk_ratio": unk_ratio,
+            "coverage": coverage,
+        }
+
     @staticmethod
     def train(
         input_file: str,

@@ -10,8 +10,10 @@ ModelConfig — 模型配置
   - 区别仅在于规模 (d_model, n_layers 等参数更大)
 """
 
+import warnings
+
 import yaml
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -43,6 +45,7 @@ class ModelConfig:
     max_seq_len: int = 512
     dropout: float = 0.1
     norm_eps: float = 1e-6
+    sliding_window: int | None = None  # None = 全局注意力, >0 = 滑动窗口大小
 
     @property
     def head_dim(self) -> int:
@@ -56,6 +59,20 @@ class ModelConfig:
         例: n_heads=16, n_kv_heads=8 → 每 2 个 Q head 共享一组 KV
         """
         return self.n_heads // self.n_kv_heads
+
+    @classmethod
+    def tiny(cls) -> "ModelConfig":
+        """Tiny 配置 (~1.5M 参数), 用于快速验证训练流程"""
+        return cls(
+            d_model=128,
+            n_heads=4,
+            n_kv_heads=4,
+            n_layers=4,
+            d_ff=352,
+            vocab_size=8000,
+            max_seq_len=128,
+            dropout=0.1,
+        )
 
     @classmethod
     def small(cls) -> "ModelConfig":
@@ -97,7 +114,7 @@ class ModelConfig:
             config = yaml.safe_load(f)
         return cls(**config["model"])
 
-    def count_params(self) -> dict:
+    def count_params(self) -> dict[str, int | float]:
         """估算模型参数量 (不含共享权重)
 
         Returns:
@@ -145,6 +162,25 @@ class ModelConfig:
         assert self.n_heads % self.n_kv_heads == 0, (
             f"n_heads ({self.n_heads}) 必须能被 n_kv_heads ({self.n_kv_heads}) 整除"
         )
+        assert self.max_seq_len >= 64, f"max_seq_len ({self.max_seq_len}) 至少为 64"
+        assert self.vocab_size >= 256, f"vocab_size ({self.vocab_size}) 至少为 256"
+        assert self.n_layers >= 1, f"n_layers ({self.n_layers}) 至少为 1"
+        assert 0.0 <= self.dropout <= 0.5, (
+            f"dropout ({self.dropout}) 应在 [0, 0.5] 范围内"
+        )
+        if self.sliding_window is not None:
+            assert self.sliding_window >= 64, (
+                f"sliding_window ({self.sliding_window}) 至少为 64"
+            )
+
+        # d_ff 通常约为 8/3 × d_model (SwiGLU 最佳)
+        expected_ff = int(8 / 3 * self.d_model)
+        if abs(self.d_ff - expected_ff) > expected_ff * 0.2:
+            warnings.warn(
+                f"d_ff={self.d_ff} 偏离推荐值 ≈{expected_ff} (8/3 × d_model) 超过 20%",
+                UserWarning,
+                stacklevel=2,
+            )
 
 
 if __name__ == "__main__":

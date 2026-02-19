@@ -185,7 +185,7 @@ def main():
         "--format",
         type=str,
         default="weights",
-        choices=["weights", "torchscript", "quantized", "all"],
+        choices=["weights", "torchscript", "quantized", "gguf", "all"],
         help="导出格式",
     )
     parser.add_argument(
@@ -243,7 +243,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     formats_to_export = (
-        ["weights", "torchscript", "quantized"]
+        ["weights", "torchscript", "quantized", "gguf"]
         if args.format == "all"
         else [args.format]
     )
@@ -266,6 +266,15 @@ def main():
                 model,
                 os.path.join(args.output_dir, "clearmind_int8.pth"),
                 model_config,
+            )
+        elif fmt == "gguf":
+            from deploy.export_gguf import export_gguf
+
+            export_gguf(
+                model,
+                model_config,
+                os.path.join(args.output_dir, "clearmind-f16.gguf"),
+                dtype="f16",
             )
 
     print(f"\n{'=' * 60}")

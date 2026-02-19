@@ -9,14 +9,19 @@
 
 - 🔧 **纯 PyTorch 手写** — 不依赖 HuggingFace Transformers，每一行代码都可追溯
 - 📐 **现代架构** — RoPE + RMSNorm + SwiGLU + GQA，与 Llama/Gemma 同源
+- ⚡ **推理优化** — KV Cache + Flash Attention + Sliding Window Attention
 - 🎓 **教育导向** — 中英文详细注释，每个模块都解释"为什么这样做"
-- 📊 **三档规模** — 从 MacBook 到 A100，灵活选择训练规模
+- 📊 **四档规模** — Tiny 验证 → Mini 学习 → Medium GPU → Large A100
 - 🔄 **完整流水线** — 数据处理 → 预训练 → 指令微调 → 偏好对齐 → 对话推理
+- 🧱 **LoRA 微调** — 低秩适配器，少参数高效微调
+- 🧪 **单元测试** — 86 个测试用例，覆盖所有核心模块
+- 🚀 **一键部署** — FastAPI / Gradio / Docker / GGUF 导出
 
 ## 🏷️ 模型家族
 
 | 模型               | 参数量 | 架构                  | 适合设备        |
 | ------------------ | ------ | --------------------- | --------------- |
+| **ClearMind-Tiny** | ~1.5M  | MHA, 4层, d=128       | 任意 (流程验证) |
 | **ClearMind-Mini** | ~26M   | MHA, 8层, d=512       | MacBook CPU/MPS |
 | **ClearMind**      | ~200M  | GQA 2:1, 16层, d=1024 | GPU 24GB+       |
 | **ClearMind-Plus** | ~468M  | GQA 4:1, 24层, d=2048 | A100 80GB       |
@@ -26,37 +31,41 @@
 ```
 capstone-llm-from-scratch/
 ├── configs/
+│   ├── tiny.yaml            # ClearMind-Tiny 配置 (流程验证)
 │   ├── small.yaml           # ClearMind-Mini 配置
 │   ├── medium.yaml          # ClearMind 配置
 │   └── large.yaml           # ClearMind-Plus 配置 (A100)
 ├── src/
 │   ├── model/               # 🧠 模型架构 (从零实现)
-│   │   ├── config.py        #    ModelConfig 超参数
+│   │   ├── config.py        #    ModelConfig 超参数 + 配置校验
 │   │   ├── rope.py          #    RoPE 旋转位置编码
 │   │   ├── normalization.py #    RMSNorm 层归一化
 │   │   ├── activation.py    #    SwiGLU 激活函数
 │   │   ├── feedforward.py   #    SwiGLU 前馈网络
-│   │   ├── attention.py     #    Multi-Head Attention + GQA
+│   │   ├── attention.py     #    MHA + GQA + KV Cache + Flash Attention
 │   │   ├── transformer.py   #    TransformerBlock (Pre-Norm)
 │   │   └── gpt.py           #    完整 GPT 模型
 │   ├── data/                # 📦 数据处理
-│   │   ├── tokenizer.py     #    BPE 分词器封装
+│   │   ├── tokenizer.py     #    BPE 分词器 + OOV 覆盖率检测
 │   │   ├── pretrain_dataset.py  # 预训练数据集 (文本→固定长度)
 │   │   ├── sft_dataset.py   #    SFT 数据集 (对话模板+Loss Mask)
 │   │   └── dpo_dataset.py   #    DPO 数据集 (偏好对)
 │   ├── training/            # 🏋️ 训练模块
-│   │   ├── trainer_utils.py #    LR调度/梯度裁剪/Checkpoint/日志
+│   │   ├── base_trainer.py #    Trainer 基类 (封装共享逻辑)
+│   │   ├── trainer_utils.py #    LR调度/梯度裁剪/Checkpoint/日志/DDP
 │   │   ├── pretrain.py      #    预训练 Trainer
 │   │   ├── sft.py           #    SFT 微调 Trainer
-│   │   └── dpo.py           #    DPO 对齐 Trainer
+│   │   ├── dpo.py           #    DPO 对齐 Trainer
+│   │   └── lora.py          #    LoRA 低秩适配微调
 │   └── inference/           # 💬 推理模块
-│       ├── generate.py      #    文本生成 (Top-k/Top-p/Temperature)
+│       ├── generate.py      #    文本生成 (KV Cache + Top-k/Top-p)
 │       └── chat.py          #    交互式对话
 ├── scripts/                 # 🚀 入口脚本
 │   ├── prepare_data.py      #    数据准备 (样例/HuggingFace)
 │   ├── train_tokenizer.py   #    BPE 分词器训练
 │   ├── train.py             #    统一训练入口 (--stage pretrain/sft/dpo)
 │   ├── chat.py              #    交互式对话
+│   ├── launch_ddp.py        #    DDP 多 GPU 启动脚本
 │   └── autodl_train.sh      #    AutoDL 一键训练
 ├── evaluate/                # 📊 评估模块
 │   ├── eval_perplexity.py   #    困惑度评估 (支持 --compare 阶段对比)
@@ -67,11 +76,23 @@ capstone-llm-from-scratch/
 │   ├── api_server.py        #    FastAPI REST API (兼容 OpenAI 格式)
 │   ├── web_demo.py          #    Gradio Web 演示界面
 │   ├── export_model.py      #    模型导出 (权重瘦身/量化)
+│   ├── export_gguf.py       #    GGUF 格式导出 (llama.cpp 兼容)
 │   └── Dockerfile           #    Docker 容器化
+├── tests/                   # 🧪 单元测试 (86 个用例)
+│   ├── conftest.py          #    共享 fixture (tiny_config, tiny_model)
+│   ├── test_model.py        #    GPT 模型测试
+│   ├── test_attention.py    #    Attention + GQA + KV Cache 测试
+│   ├── test_config.py       #    配置校验测试
+│   ├── test_tokenizer.py    #    Tokenizer 测试
+│   ├── test_generate.py     #    文本生成测试
+│   ├── test_datasets.py     #    数据集测试 (Pretrain/SFT/DPO)
+│   ├── test_trainer_utils.py #    训练工具测试
+│   └── test_lora.py         #    LoRA 测试
 ├── docs/                    # 📚 项目文档
 │   ├── PRD.md               #    产品需求文档
 │   ├── TECHNICAL_DESIGN.md  #    技术设计文档
-│   └── PROGRESS_TRACKER.md  #    开发进度表
+│   ├── PROGRESS_TRACKER.md  #    开发进度表
+│   └── DEPLOY.md            #    部署指南 (硬件/API/Docker)
 ├── requirements.txt
 └── requirements-deploy.txt  # 部署专用依赖
 ```
@@ -81,8 +102,26 @@ capstone-llm-from-scratch/
 ### 环境准备
 
 ```bash
-cd projects/capstone-llm-from-scratch
+cd capstone-llm-from-scratch
+
+# 创建虚拟环境
+python3 -m venv venv
+
+# 激活虚拟环境
+source venv/bin/activate
+
+# 安装依赖
 pip install -r requirements.txt
+```
+
+### 快速验证 (ClearMind-Tiny, ~1.5M, 2-5 分钟)
+
+```bash
+python scripts/prepare_data.py                          # 准备样例数据
+python scripts/train_tokenizer.py                      # 训练分词器
+python scripts/train.py --stage pretrain --config configs/tiny.yaml  # 预训练
+python scripts/train.py --stage sft --config configs/tiny.yaml       # SFT
+python scripts/chat.py --config configs/tiny.yaml      # 验证对话
 ```
 
 ### MacBook 训练 (ClearMind-Mini, ~26M)
@@ -122,7 +161,7 @@ bash scripts/autodl_train.sh large
 [Token Embedding] → 向量表示
   ↓
 [Transformer Block] × N 层
-  ├── RMSNorm → Multi-Head Attention (GQA + RoPE + Causal Mask)
+  ├── RMSNorm → Multi-Head Attention (GQA + RoPE + KV Cache + Flash Attention)
   ├── Residual Connection
   ├── RMSNorm → SwiGLU FeedForward
   └── Residual Connection
@@ -144,16 +183,16 @@ Loss: Next-token       Loss: 只在 Assistant     Loss: DPO Loss
 
 ## 📊 模型配置详解
 
-| 参数        | ClearMind-Mini | ClearMind   | ClearMind-Plus |
-| ----------- | -------------- | ----------- | -------------- |
-| d_model     | 512            | 1024        | 2048           |
-| n_heads     | 8              | 16          | 32             |
-| n_kv_heads  | 8 (MHA)        | 8 (GQA 2:1) | 8 (GQA 4:1)    |
-| n_layers    | 8              | 16          | 24             |
-| d_ff        | 1408           | 2816        | 5632           |
-| vocab_size  | 8,000          | 32,000      | 64,000         |
-| max_seq_len | 512            | 1024        | 2048           |
-| 精度        | float32        | bfloat16    | bfloat16       |
+| 参数        | ClearMind-Tiny | ClearMind-Mini | ClearMind   | ClearMind-Plus |
+| ----------- | -------------- | -------------- | ----------- | -------------- |
+| d_model     | 128            | 512            | 1024        | 2048           |
+| n_heads     | 4              | 8              | 16          | 32             |
+| n_kv_heads  | 4 (MHA)        | 8 (MHA)        | 8 (GQA 2:1) | 8 (GQA 4:1)    |
+| n_layers    | 4              | 8              | 16          | 24             |
+| d_ff        | 352            | 1408           | 2816        | 5632           |
+| vocab_size  | 8,000          | 8,000          | 32,000      | 64,000         |
+| max_seq_len | 128            | 512            | 1024        | 2048           |
+| 精度        | float32        | float32        | bfloat16    | bfloat16       |
 
 ## 📊 模型评估
 
@@ -178,60 +217,41 @@ python evaluate/eval_benchmark.py --config configs/small.yaml
 
 ## 🚀 部署上线
 
-### 安装部署依赖
+详细部署文档请参考 **[DEPLOY.md](docs/DEPLOY.md)**，包含：
+
+- 🖥️ 各模型硬件需求（训练 + 推理）
+- 🌐 REST API 服务（兼容 OpenAI 格式）
+- 💬 Gradio Web 演示界面
+- 🐳 Docker 容器化部署
+- 📦 模型导出与 INT8 量化
+- ⚡ 性能调优建议
+
+**快速体验：**
 
 ```bash
 pip install -r requirements-deploy.txt
+python deploy/api_server.py --model outputs/dpo/final.pth
 ```
 
-### 方式一: REST API 服务 (推荐)
+## 🧪 单元测试
 
 ```bash
-# 启动 API 服务 (兼容 OpenAI 格式)
-python deploy/api_server.py --model outputs/dpo/final.pth --port 8000
-
-# 测试 (兼容 OpenAI 客户端)
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "你好"}]}'
+# 运行全部测试 (86 个用例)
+python -m pytest tests/ -v
 ```
 
-### 方式二: Web 演示界面
+测试覆盖全部核心模块:
 
-```bash
-# 本地启动 Gradio 界面
-python deploy/web_demo.py --model outputs/dpo/final.pth
-
-# 创建公网分享链接
-python deploy/web_demo.py --model outputs/dpo/final.pth --share
-```
-
-### 方式三: Docker 部署
-
-```bash
-# 构建镜像
-docker build -t clearmind -f deploy/Dockerfile .
-
-# 运行 API 服务
-docker run -p 8000:8000 -v ./outputs:/app/outputs clearmind
-
-# 运行 Web 界面
-docker run -p 7860:7860 -v ./outputs:/app/outputs clearmind \
-  python deploy/web_demo.py --port 7860
-```
-
-### 模型导出与优化
-
-```bash
-# 导出精简权重 (去除优化器状态)
-python deploy/export_model.py --model outputs/dpo/final.pth --format weights
-
-# INT8 量化 (减少模型大小和推理延迟)
-python deploy/export_model.py --model outputs/dpo/final.pth --format quantized
-
-# 导出所有格式
-python deploy/export_model.py --model outputs/dpo/final.pth --format all
-```
+| 模块       | 测试内容                                  |
+| ---------- | ----------------------------------------- |
+| 模型 (GPT) | 前向/反向传播, 参数统计, KV Cache         |
+| 注意力     | MHA/GQA, KV Cache 增长, Sliding Window    |
+| 配置       | 工厂方法, 校验规则, YAML 加载             |
+| 分词器     | encode/decode, 特殊 token, 中文, OOV 检测 |
+| 文本生成   | 长度控制, Greedy 确定性, EOS 停止         |
+| 数据集     | Pretrain/SFT/DPO 加载与 loss mask         |
+| 训练工具   | LR 调度, Early Stopping, 梯度裁剪         |
+| LoRA       | apply/merge/save/load                     |
 
 ## 📖 学习路线
 
@@ -239,8 +259,9 @@ python deploy/export_model.py --model outputs/dpo/final.pth --format all
 2. **跑通流程** — 用 `small` 配置在 MacBook 上跑完全流程
 3. **对比效果** — 用 `eval_benchmark.py` 一键对比各阶段模型
 4. **深入评估** — 分析生成质量和指令跟随能力的变化
-5. **部署上线** — 用 API / Web / Docker 部署到生产环境
-6. **扩大规模** — 在 A100 上用 `large` 配置训练更大模型
+5. **运行测试** — 用 `pytest` 验证对每个模块的理解
+6. **部署上线** — 用 API / Web / Docker 部署到生产环境
+7. **扩大规模** — 在 A100 上用 `large` 配置训练更大模型
 
 ## 📝 License
 

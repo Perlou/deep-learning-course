@@ -14,6 +14,7 @@ from .trainer_utils import (
     is_main_process,
     wrap_model_ddp,
 )
+from .base_trainer import BaseTrainer
 from .pretrain import PreTrainer
 from .sft import SFTTrainer
 from .dpo import DPOTrainer
@@ -40,6 +41,7 @@ __all__ = [
     "cleanup_ddp",
     "is_main_process",
     "wrap_model_ddp",
+    "BaseTrainer",
     "PreTrainer",
     "SFTTrainer",
     "DPOTrainer",

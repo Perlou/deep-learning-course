@@ -123,7 +123,7 @@ class CosineWarmupScheduler:
                 1 + math.cos(math.pi * progress)
             )
 
-    def step(self):
+    def step(self) -> float:
         """更新学习率"""
         lr = self.get_lr()
         for param_group in self.optimizer.param_groups:
@@ -262,7 +262,7 @@ def create_grad_scaler(
 # ============================================================
 
 
-def setup_ddp(rank: int, world_size: int, backend: str = "nccl"):
+def setup_ddp(rank: int, world_size: int, backend: str = "nccl") -> None:
     """初始化 DDP 进程组
 
     Args:
@@ -276,7 +276,7 @@ def setup_ddp(rank: int, world_size: int, backend: str = "nccl"):
     torch.cuda.set_device(rank)
 
 
-def cleanup_ddp():
+def cleanup_ddp() -> None:
     """清理 DDP 进程组"""
     if dist.is_initialized():
         dist.destroy_process_group()
@@ -335,7 +335,7 @@ def save_checkpoint(
     step: int,
     loss: float,
     save_path: str,
-):
+) -> None:
     """保存训练 checkpoint
 
     保存内容包括:
@@ -452,7 +452,7 @@ class TrainingLogger:
         lr: float,
         tokens_per_step: int = 0,
         grad_norm: float = 0.0,
-    ):
+    ) -> None:
         """记录一步的训练指标"""
         now = time.time()
         elapsed = now - self.start_time
@@ -517,7 +517,7 @@ class TrainingLogger:
         else:
             return f"{remaining_seconds / 3600:.1f}h"
 
-    def save_log(self, filename: str = "training_log.jsonl"):
+    def save_log(self, filename: str = "training_log.jsonl") -> None:
         """保存训练日志到文件"""
         if not self.log_dir:
             return
@@ -528,13 +528,13 @@ class TrainingLogger:
                 f.write(json.dumps(entry) + "\n")
         print(f"📝 训练日志保存: {filepath}")
 
-    def log_val(self, step: int, val_loss: float):
+    def log_val(self, step: int, val_loss: float) -> None:
         """记录验证指标"""
         print(f"  📋 Val Loss: {val_loss:.4f} (step {step})")
         if self.tb_writer:
             self.tb_writer.add_scalar("val/loss", val_loss, step)
 
-    def summary(self):
+    def summary(self) -> None:
         """打印训练摘要"""
         if not self.history:
             return

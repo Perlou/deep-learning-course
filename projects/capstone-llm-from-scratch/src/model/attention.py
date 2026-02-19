@@ -70,6 +70,11 @@ class Attention(nn.Module):
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
+        # Sliding Window Attention (可选)
+        # 限制每个 token 只关注最近 window_size 个 token
+        # None = 全局注意力, >0 = 滑动窗口
+        self.sliding_window = config.sliding_window
+
         # 预计算 RoPE 频率
         cos, sin = precompute_rope_frequencies(self.head_dim, config.max_seq_len)
         # 注册为 buffer (不参与梯度计算, 但会跟随模型移动到 GPU)
@@ -145,17 +150,49 @@ class Attention(nn.Module):
         kv_len = k_expanded.shape[2]
 
         if seq_len == kv_len:
-            # Prefill / 训练: 完整序列, 需要 causal mask
-            output = F.scaled_dot_product_attention(
-                q,
-                k_expanded,
-                v_expanded,
-                attn_mask=None,
-                dropout_p=self.attn_dropout.p if self.training else 0.0,
-                is_causal=True,
-            )
+            # Prefill / 训练: 完整序列
+            if self.sliding_window is not None and self.sliding_window < seq_len:
+                # Sliding Window Attention:
+                # 每个 token 只看最近 window_size 个 token
+                # 构造 mask: causal + sliding window
+                row_idx = torch.arange(seq_len, device=q.device).unsqueeze(1)
+                col_idx = torch.arange(kv_len, device=q.device).unsqueeze(0)
+                # causal: col <= row; window: col >= row - window + 1
+                causal = col_idx <= row_idx
+                window = col_idx >= (row_idx - self.sliding_window + 1)
+                valid = causal & window
+                # 转为 additive mask: True→0, False→-inf
+                attn_mask = torch.where(
+                    valid,
+                    torch.tensor(0.0, device=q.device),
+                    torch.tensor(float("-inf"), device=q.device),
+                )
+                output = F.scaled_dot_product_attention(
+                    q,
+                    k_expanded,
+                    v_expanded,
+                    attn_mask=attn_mask,
+                    dropout_p=self.attn_dropout.p if self.training else 0.0,
+                    is_causal=False,  # 已通过 attn_mask 处理
+                )
+            else:
+                # 全局 causal attention
+                output = F.scaled_dot_product_attention(
+                    q,
+                    k_expanded,
+                    v_expanded,
+                    attn_mask=None,
+                    dropout_p=self.attn_dropout.p if self.training else 0.0,
+                    is_causal=True,
+                )
         else:
             # Decode: Q 只有 1 个 token, 不需要 causal mask
+            # SWA decode: 通过 KV Cache 自然限制窗口
+            # (可选: 在 KV Cache 拼接后截断到 window_size)
+            if self.sliding_window is not None and kv_len > self.sliding_window:
+                # 截断 KV Cache 到最近的 window_size 个 token
+                k_expanded = k_expanded[:, :, -self.sliding_window :, :]
+                v_expanded = v_expanded[:, :, -self.sliding_window :, :]
             output = F.scaled_dot_product_attention(
                 q,
                 k_expanded,

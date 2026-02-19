@@ -1,0 +1,64 @@
+# ClearMind-Tiny 配置 (~1.5M 参数)
+# 专为 MacBook CPU/MPS 快速验证设计
+# 用途: 验证训练流程、评估管线、代码正确性
+# 训练时间: ~2-5 分钟 (MacBook CPU)
+
+model:
+  d_model: 128           # 隐藏层维度 (极小)
+  n_heads: 4             # 注意力头数
+  n_kv_heads: 4          # KV 头数 (= n_heads, 标准 MHA)
+  n_layers: 4            # Transformer 层数
+  d_ff: 352              # FFN 中间维度 (≈ 2.75 × d_model)
+  vocab_size: 8000       # 词表大小 (与 small 一致, 复用 tokenizer)
+  max_seq_len: 128       # 最大序列长度 (短序列加速)
+  dropout: 0.1           # Dropout 比率
+  norm_eps: 1.0e-6       # RMSNorm epsilon
+
+tokenizer:
+  model_type: bpe
+  vocab_size: 8000
+  character_coverage: 0.9995
+
+pretrain:
+  batch_size: 8
+  gradient_accumulation: 2     # 有效 batch = 16
+  max_steps: 200               # 极少步数, 只验证流程
+  lr: 5.0e-4
+  min_lr: 5.0e-5
+  weight_decay: 0.01
+  warmup_steps: 20
+  save_every: 50
+  eval_every: 50
+  log_every: 10
+  dtype: float32               # MacBook CPU 使用 float32
+  patience: 5                  # Early Stopping 容忍次数
+  use_tensorboard: false
+
+sft:
+  batch_size: 4
+  gradient_accumulation: 2
+  epochs: 2
+  lr: 2.0e-5
+  weight_decay: 0.01
+  log_every: 5
+  dtype: float32
+  patience: 3
+  use_tensorboard: false
+
+dpo:
+  batch_size: 2
+  gradient_accumulation: 4
+  epochs: 1
+  lr: 1.0e-5
+  beta: 0.1
+  log_every: 5
+  dtype: float32
+  patience: 3
+  use_tensorboard: false
+
+generation:
+  max_new_tokens: 64           # 短输出, 快速验证
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.1
