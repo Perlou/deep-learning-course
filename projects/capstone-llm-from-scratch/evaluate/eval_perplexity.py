@@ -94,13 +94,16 @@ def evaluate_perplexity(
 def main():
     parser = argparse.ArgumentParser(description="ClearMind 困惑度评估")
     parser.add_argument("--config", type=str, default="configs/small.yaml")
-    parser.add_argument("--model", type=str, required=True, help="模型 checkpoint 路径")
+    parser.add_argument("--model", type=str, help="模型 checkpoint 路径")
     parser.add_argument("--data", type=str, default="data/pretrain/pretrain_data.jsonl")
     parser.add_argument(
         "--tokenizer", type=str, default="outputs/tokenizer/tokenizer.model"
     )
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--max_batches", type=int, default=100)
+    parser.add_argument(
+        "--compare", action="store_true", help="对比 pretrain/sft/dpo 三阶段的困惑度"
+    )
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -124,26 +127,96 @@ def main():
         max_seq_len=model_config.max_seq_len,
     )
 
-    # 加载模型
     device = get_device()
-    model = GPT(model_config).to(device)
-    load_checkpoint(model, args.model, device=device)
 
-    # 评估
-    print(f"\n🔍 评估中...")
-    ppl = evaluate_perplexity(
-        model=model,
-        dataset=dataset,
-        batch_size=args.batch_size,
-        device=device,
-        max_batches=args.max_batches,
-    )
+    if args.compare:
+        # === 多阶段对比模式 ===
+        stages = {
+            "pretrain": "outputs/pretrain/final.pth",
+            "sft": "outputs/sft/final.pth",
+            "dpo": "outputs/dpo/final.pth",
+        }
 
-    print(f"\n📊 结果:")
-    print(f"  模型: {args.model}")
-    print(f"  困惑度 (PPL): {ppl:.2f}")
-    print(f"  (PPL 越低越好, 随机模型 ≈ {model_config.vocab_size})")
-    print("=" * 60)
+        results = {}
+        for stage_name, model_path in stages.items():
+            if not os.path.exists(model_path):
+                print(f"\n⚠️  跳过 {stage_name}: {model_path} 不存在")
+                continue
+
+            print(f"\n🔍 评估 {stage_name}...")
+            model = GPT(model_config).to(device)
+            load_checkpoint(model, model_path, device=device)
+
+            ppl = evaluate_perplexity(
+                model=model,
+                dataset=dataset,
+                batch_size=args.batch_size,
+                device=device,
+                max_batches=args.max_batches,
+            )
+
+            results[stage_name] = ppl
+            print(f"  {stage_name} PPL = {ppl:.2f}")
+
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        # 打印对比表格
+        if results:
+            print(f"\n{'=' * 50}")
+            print(f"📊 困惑度对比")
+            print(f"{'=' * 50}")
+            print(f"  {'阶段':^10} │ {'PPL':^12} │ {'说明':^15}")
+            print(f"  {'─' * 45}")
+            print(
+                f"  {'随机基线':^10} │ {model_config.vocab_size:^12} │ {'未训练':^15}"
+            )
+            for stage, ppl in results.items():
+                note = {
+                    "pretrain": "语言建模",
+                    "sft": "指令微调",
+                    "dpo": "偏好对齐",
+                }.get(stage, "")
+                print(f"  {stage:^10} │ {ppl:^12.2f} │ {note:^15}")
+            print(f"  {'─' * 45}")
+            print(f"  (PPL 越低越好)")
+            print(f"{'=' * 50}")
+
+    else:
+        # === 单模型评估模式 ===
+        if not args.model:
+            for path in [
+                "outputs/dpo/final.pth",
+                "outputs/sft/final.pth",
+                "outputs/pretrain/final.pth",
+            ]:
+                if os.path.exists(path):
+                    args.model = path
+                    break
+            else:
+                print("❌ 未找到任何 checkpoint，请使用 --model 指定或先完成训练")
+                sys.exit(1)
+
+        # 加载模型
+        model = GPT(model_config).to(device)
+        load_checkpoint(model, args.model, device=device)
+
+        # 评估
+        print(f"\n🔍 评估中...")
+        ppl = evaluate_perplexity(
+            model=model,
+            dataset=dataset,
+            batch_size=args.batch_size,
+            device=device,
+            max_batches=args.max_batches,
+        )
+
+        print(f"\n📊 结果:")
+        print(f"  模型: {args.model}")
+        print(f"  困惑度 (PPL): {ppl:.2f}")
+        print(f"  (PPL 越低越好, 随机模型 ≈ {model_config.vocab_size})")
+        print("=" * 60)
 
 
 if __name__ == "__main__":

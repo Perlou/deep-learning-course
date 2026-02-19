@@ -58,8 +58,11 @@ capstone-llm-from-scratch/
 │   ├── train.py             #    统一训练入口 (--stage pretrain/sft/dpo)
 │   ├── chat.py              #    交互式对话
 │   └── autodl_train.sh      #    AutoDL 一键训练
-├── evaluate/
-│   └── eval_perplexity.py   #    困惑度评估
+├── evaluate/                # 📊 评估模块
+│   ├── eval_perplexity.py   #    困惑度评估 (支持 --compare 阶段对比)
+│   ├── eval_generation.py   #    生成质量评估 (Distinct-N/重复率)
+│   ├── eval_instruction.py  #    指令跟随评估 (格式/相关性/安全性)
+│   └── eval_benchmark.py    #    综合评估报告 (一键全面评测)
 ├── docs/                    # 📚 项目文档
 │   ├── PRD.md               #    产品需求文档
 │   ├── TECHNICAL_DESIGN.md  #    技术设计文档
@@ -146,12 +149,34 @@ Loss: Next-token       Loss: 只在 Assistant     Loss: DPO Loss
 | max_seq_len | 512            | 1024        | 2048           |
 | 精度        | float32        | bfloat16    | bfloat16       |
 
+## 📊 模型评估
+
+训练完成后，使用评估工具验证模型效果:
+
+```bash
+# 困惑度评估 (PPL 越低越好)
+python evaluate/eval_perplexity.py --model outputs/sft/final.pth
+
+# 一键对比各阶段 PPL
+python evaluate/eval_perplexity.py --compare
+
+# 生成质量评估 (Distinct-N, 重复率)
+python evaluate/eval_generation.py --model outputs/sft/final.pth
+
+# 指令跟随评估 (格式正确率, 安全性)
+python evaluate/eval_instruction.py --model outputs/dpo/final.pth
+
+# 综合评估报告 (一键运行所有评估)
+python evaluate/eval_benchmark.py --config configs/small.yaml
+```
+
 ## 📖 学习路线
 
 1. **理解架构** — 阅读 `src/model/` 下每个文件的注释
 2. **跑通流程** — 用 `small` 配置在 MacBook 上跑完全流程
-3. **对比效果** — 用 `eval_perplexity.py` 对比各阶段模型
-4. **扩大规模** — 在 A100 上用 `large` 配置训练更大模型
+3. **对比效果** — 用 `eval_benchmark.py` 一键对比各阶段模型
+4. **深入评估** — 分析生成质量和指令跟随能力的变化
+5. **扩大规模** — 在 A100 上用 `large` 配置训练更大模型
 
 ## 📝 License
 
