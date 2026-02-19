@@ -26,6 +26,18 @@ import torch.nn as nn
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+# PyTorch 版本兼容: torch.amp (2.1+) vs torch.cuda.amp (旧版)
+try:
+    from torch.amp import autocast as _autocast
+    from torch.amp import GradScaler as _GradScaler
+
+    _AMP_NEW_API = True
+except ImportError:
+    from torch.cuda.amp import autocast as _autocast  # type: ignore
+    from torch.cuda.amp import GradScaler as _GradScaler  # type: ignore
+
+    _AMP_NEW_API = False
+
 
 # ============================================================
 # 设备检测
@@ -222,11 +234,7 @@ def evaluate_loss(
         input_ids = batch["input_ids"].to(device)
         labels = batch["labels"].to(device)
 
-        with torch.amp.autocast(
-            device_type=device.type,
-            dtype=dtype,
-            enabled=(dtype != torch.float32),
-        ):
+        with amp_autocast(device, dtype):
             _, loss, _ = model(input_ids, labels)
 
         total_loss += loss.item()
@@ -236,6 +244,14 @@ def evaluate_loss(
     return total_loss / max(total_batches, 1)
 
 
+def amp_autocast(device: torch.device, dtype: torch.dtype):
+    """创建兼容所有 PyTorch 版本的 autocast 上下文管理器"""
+    enabled = dtype != torch.float32
+    if _AMP_NEW_API:
+        return _autocast(device_type=device.type, dtype=dtype, enabled=enabled)
+    return _autocast(enabled=enabled)
+
+
 # ============================================================
 # 混合精度 GradScaler
 # ============================================================
@@ -243,7 +259,7 @@ def evaluate_loss(
 
 def create_grad_scaler(
     device: torch.device, dtype: torch.dtype
-) -> torch.amp.GradScaler | None:
+) -> Optional["_GradScaler"]:
     """为 CUDA FP16 创建 GradScaler
 
     只在 CUDA + float16 时启用 (bfloat16 不需要)。
@@ -253,7 +269,7 @@ def create_grad_scaler(
         GradScaler 或 None
     """
     if device.type == "cuda" and dtype == torch.float16:
-        return torch.amp.GradScaler("cuda")
+        return _GradScaler("cuda") if _AMP_NEW_API else _GradScaler()
     return None
 
 

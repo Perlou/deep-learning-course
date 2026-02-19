@@ -35,6 +35,7 @@ from .base_trainer import BaseTrainer
 from .trainer_utils import (
     CosineWarmupScheduler,
     load_checkpoint,
+    amp_autocast,
 )
 
 
@@ -195,11 +196,7 @@ class DPOTrainer(BaseTrainer):
             rejected_ids = batch["rejected_input_ids"].to(self.device)
             rejected_labels = batch["rejected_labels"].to(self.device)
 
-            with torch.amp.autocast(
-                device_type=self.device.type,
-                dtype=self.dtype,
-                enabled=(self.dtype != torch.float32),
-            ):
+            with amp_autocast(self.device, self.dtype):
                 policy_chosen_logps = self._compute_log_probs(
                     self.model, chosen_ids, chosen_labels
                 )
@@ -278,11 +275,7 @@ class DPOTrainer(BaseTrainer):
                 rejected_ids = batch["rejected_input_ids"].to(self.device)
                 rejected_labels = batch["rejected_labels"].to(self.device)
 
-                with torch.amp.autocast(
-                    device_type=self.device.type,
-                    dtype=self.dtype,
-                    enabled=(self.dtype != torch.float32),
-                ):
+                with amp_autocast(self.device, self.dtype):
                     # 计算当前模型的 log probs
                     policy_chosen_logps = self._compute_log_probs(
                         self.model, chosen_ids, chosen_labels

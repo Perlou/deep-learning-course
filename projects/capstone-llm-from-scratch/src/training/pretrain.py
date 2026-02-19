@@ -30,6 +30,7 @@ from .base_trainer import BaseTrainer
 from .trainer_utils import (
     CosineWarmupScheduler,
     load_checkpoint,
+    amp_autocast,
 )
 
 
@@ -136,11 +137,7 @@ class PreTrainer(BaseTrainer):
                 labels = batch["labels"].to(self.device)
 
                 # 前向传播 (混合精度)
-                with torch.amp.autocast(
-                    device_type=self.device.type,
-                    dtype=self.dtype,
-                    enabled=(self.dtype != torch.float32),
-                ):
+                with amp_autocast(self.device, self.dtype):
                     logits, loss, _ = self.model(input_ids, labels)
 
                 # 梯度累积: loss 除以累积步数
