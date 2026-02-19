@@ -94,7 +94,8 @@ capstone-llm-from-scratch/
 │   ├── PROGRESS_TRACKER.md  #    开发进度表
 │   └── DEPLOY.md            #    部署指南 (硬件/API/Docker)
 ├── requirements.txt
-└── requirements-deploy.txt  # 部署专用依赖
+├── requirements-deploy.txt  # 部署专用依赖
+└── run.sh                   # 🎯 一键启动脚本 (交互式菜单)
 ```
 
 ## 🚀 快速开始
@@ -114,42 +115,56 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 快速验证 (ClearMind-Tiny, ~1.5M, 2-5 分钟)
+### 一键启动
 
 ```bash
-python scripts/prepare_data.py                          # 准备样例数据
-python scripts/train_tokenizer.py                      # 训练分词器
-python scripts/train.py --stage pretrain --config configs/tiny.yaml  # 预训练
-python scripts/train.py --stage sft --config configs/tiny.yaml       # SFT
-python scripts/chat.py --config configs/tiny.yaml      # 验证对话
+bash run.sh
 ```
 
-### MacBook 训练 (ClearMind-Mini, ~26M)
+交互式菜单引导你完成整个流程：
+
+```
+📦 选择模型规模:
+  1) Tiny   (~1.5M 参数, 2-5 分钟, 无需联网)
+  2) Small  (~26M  参数, MacBook CPU/MPS)
+  3) Medium (~200M 参数, GPU 24GB+)
+  4) Large  (~468M 参数, A100 80GB)
+
+🔄 选择训练流程:
+  1) 全流程  (数据 → 分词器 → 预训练 → SFT → DPO → 对话)
+  2) 仅预训练
+  3) 从 SFT 继续
+  4) 从 DPO 继续
+  5) 仅对话
+  6) 仅训练分词器
+  7) 运行测试
+```
+
+<details>
+<summary>📝 也可以手动逐步执行</summary>
+
+**快速验证 (Tiny, 无需联网):**
 
 ```bash
-python scripts/prepare_data.py            # Step 1: 准备样例数据
-python scripts/train_tokenizer.py        # Step 2: 训练分词器
-python scripts/train.py --stage pretrain # Step 3: 预训练
-python scripts/train.py --stage sft      # Step 4: SFT 指令微调
-python scripts/train.py --stage dpo      # Step 5: DPO 偏好对齐
-python scripts/chat.py                   # Step 6: 开始对话!
+python scripts/prepare_data.py
+python scripts/train_tokenizer.py --config configs/tiny.yaml
+python scripts/train.py --stage pretrain --config configs/tiny.yaml
+python scripts/train.py --stage sft --config configs/tiny.yaml
+python scripts/chat.py --config configs/tiny.yaml
 ```
 
-### A100 训练 (ClearMind-Plus, ~468M)
+**完整训练 (Small/Medium/Large):**
 
 ```bash
-# 下载真实大规模数据集
-python scripts/prepare_data.py --scale large
-
-# 训练
-python scripts/train_tokenizer.py --config configs/large.yaml
-python scripts/train.py --stage pretrain --config configs/large.yaml
-python scripts/train.py --stage sft --config configs/large.yaml
-python scripts/train.py --stage dpo --config configs/large.yaml
-
-# 或使用一键脚本 (AutoDL)
-bash scripts/autodl_train.sh large
+python scripts/prepare_data.py [--scale medium|large]
+python scripts/train_tokenizer.py [--config configs/xxx.yaml]
+python scripts/train.py --stage pretrain [--config configs/xxx.yaml]
+python scripts/train.py --stage sft [--config configs/xxx.yaml]
+python scripts/train.py --stage dpo [--config configs/xxx.yaml]
+python scripts/chat.py [--config configs/xxx.yaml]
 ```
+
+</details>
 
 ## 🏗️ 技术架构
 

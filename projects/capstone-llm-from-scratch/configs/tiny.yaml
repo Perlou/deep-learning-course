@@ -9,14 +9,14 @@ model:
   n_kv_heads: 4          # KV 头数 (= n_heads, 标准 MHA)
   n_layers: 4            # Transformer 层数
   d_ff: 352              # FFN 中间维度 (≈ 2.75 × d_model)
-  vocab_size: 8000       # 词表大小 (与 small 一致, 复用 tokenizer)
+  vocab_size: 2000       # 词表大小 (适配样例数据)
   max_seq_len: 128       # 最大序列长度 (短序列加速)
   dropout: 0.1           # Dropout 比率
   norm_eps: 1.0e-6       # RMSNorm epsilon
 
 tokenizer:
   model_type: bpe
-  vocab_size: 8000
+  vocab_size: 2000
   character_coverage: 0.9995
 
 pretrain:

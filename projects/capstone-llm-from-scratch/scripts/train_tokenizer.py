@@ -61,16 +61,36 @@ def main():
         print("   请先运行: python scripts/prepare_data.py")
         sys.exit(1)
 
-    # 训练分词器
+    import re
+
+    # 训练分词器 (语料不足时自动降低 vocab_size)
     print("\n🔄 开始训练...")
     model_prefix = os.path.join(args.output_dir, "tokenizer")
 
-    ClearMindTokenizer.train(
-        input_file=args.corpus,
-        model_prefix=model_prefix,
-        vocab_size=vocab_size,
-        character_coverage=character_coverage,
-    )
+    try:
+        ClearMindTokenizer.train(
+            input_file=args.corpus,
+            model_prefix=model_prefix,
+            vocab_size=vocab_size,
+            character_coverage=character_coverage,
+        )
+    except RuntimeError as e:
+        # 解析 sentencepiece 错误中的实际上限
+        match = re.search(r"value <= (\d+)", str(e))
+        if match:
+            max_vocab = int(match.group(1))
+            adjusted = max(256, int(max_vocab * 0.8))  # 留 20% 余量
+            print(f"\n⚠️  语料不足以支撑 vocab_size={vocab_size}, 自动调整为 {adjusted}")
+            print("   提示: 使用更大的语料 (--scale medium/large) 可支撑更大的词表")
+            vocab_size = adjusted
+            ClearMindTokenizer.train(
+                input_file=args.corpus,
+                model_prefix=model_prefix,
+                vocab_size=vocab_size,
+                character_coverage=character_coverage,
+            )
+        else:
+            raise
 
     # 验证
     print("\n🔍 验证分词器...")
