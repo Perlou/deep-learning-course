@@ -20,10 +20,38 @@ DIM='\033[2m'
 NC='\033[0m'
 BG_CYAN='\033[46m\033[30m'
 
-# ---- 箭头选择菜单 ----
-# 用法: select_option "提示标题" option1 option2 ...
-# 返回: 选中的索引 (0-based) 存在 SELECTED_INDEX
-select_option() {
+# ---- 检测终端是否支持交互式菜单 ----
+INTERACTIVE=true
+if [[ ! -t 0 ]] || ! tput cup 0 0 2>/dev/null; then
+    INTERACTIVE=false
+fi
+
+# ---- 数字输入菜单 (兼容所有终端) ----
+select_option_simple() {
+    local title="$1"
+    shift
+    local options=("$@")
+    local count=${#options[@]}
+
+    echo -e "\n${CYAN}${BOLD}${title}${NC}\n"
+    for ((i = 0; i < count; i++)); do
+        echo -e "  ${BOLD}$((i + 1)))${NC} ${options[$i]}"
+    done
+    echo ""
+
+    while true; do
+        read -p "请选择 [1-${count}, 默认 1]: " choice
+        choice=${choice:-1}
+        if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= count)); then
+            SELECTED_INDEX=$((choice - 1))
+            return
+        fi
+        echo -e "${RED}  无效输入, 请输入 1-${count}${NC}"
+    done
+}
+
+# ---- 箭头选择菜单 (本地终端) ----
+select_option_arrow() {
     local title="$1"
     shift
     local options=("$@")
@@ -39,11 +67,9 @@ select_option() {
 
     # 渲染菜单
     render_menu() {
-        # 移动光标到菜单起始位置
         for ((i = 0; i < count; i++)); do
             tput cuu1 2>/dev/null || printf '\033[1A'
         done
-
         for ((i = 0; i < count; i++)); do
             tput el 2>/dev/null || printf '\033[2K'
             if [[ $i -eq $selected ]]; then
@@ -65,32 +91,31 @@ select_option() {
 
     # 读取按键
     while true; do
-        # 读取单个字符 (raw mode)
         IFS= read -rsn1 key
-
         case "$key" in
-            $'\x1b')  # ESC sequence
+            $'\x1b')
                 read -rsn2 rest
                 case "$rest" in
-                    '[A')  # 上箭头
-                        ((selected > 0)) && ((selected--))
-                        ;;
-                    '[B')  # 下箭头
-                        ((selected < count - 1)) && ((selected++))
-                        ;;
+                    '[A') ((selected > 0)) && ((selected--));;
+                    '[B') ((selected < count - 1)) && ((selected++));;
                 esac
                 render_menu
                 ;;
-            '')  # Enter
-                break
-                ;;
+            '') break;;
         esac
     done
 
-    # 恢复光标
     tput cnorm 2>/dev/null || true
-
     SELECTED_INDEX=$selected
+}
+
+# ---- 统一入口: 自动选择菜单模式 ----
+select_option() {
+    if $INTERACTIVE; then
+        select_option_arrow "$@"
+    else
+        select_option_simple "$@"
+    fi
 }
 
 # ---- Banner ----
