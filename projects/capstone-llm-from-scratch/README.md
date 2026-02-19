@@ -92,7 +92,8 @@ capstone-llm-from-scratch/
 │   ├── PRD.md               #    产品需求文档
 │   ├── TECHNICAL_DESIGN.md  #    技术设计文档
 │   ├── PROGRESS_TRACKER.md  #    开发进度表
-│   └── DEPLOY.md            #    部署指南 (硬件/API/Docker)
+│   ├── DEPLOY.md            #    部署指南 (硬件/API/Docker)
+│   └── AUTODL_GUIDE.md      #    AutoDL 租赁与训练攻略
 ├── requirements.txt
 ├── requirements-deploy.txt  # 部署专用依赖
 └── run.sh                   # 🎯 一键启动脚本 (交互式菜单)
