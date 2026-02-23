@@ -1,7 +1,7 @@
 # ClearMind - 开发计划进度表
 
 > 开始日期: 2026-02-18  
-> 最近更新: 2026-02-19  
+> 最近更新: 2026-02-23  
 > 负责人: Perlou
 
 ---
@@ -189,7 +189,7 @@ Phase 11: ██████████ 100%  工程质量
 | #    | 任务                  | 状态 | 优先级 | 备注                                       |
 | ---- | --------------------- | ---- | ------ | ------------------------------------------ |
 | 11.1 | 提取 Trainer 基类     | ✅   | ⚡ P1  | BaseTrainer 封装共享逻辑                   |
-| 11.2 | 增加单元测试 (pytest) | ✅   | ⚡ P1  | 8 个测试文件, 86 个测试用例                |
+| 11.2 | 增加单元测试 (pytest) | ✅   | ⚡ P1  | 覆盖核心模块 + 训练边界条件                |
 | 11.3 | 完善类型提示          | ✅   | 🟡 P2  | trainer_utils 全部补全返回值注解           |
 | 11.4 | Tokenizer 鲁棒性      | ✅   | 🟡 P2  | byte-fallback + check_coverage()           |
 | 11.5 | 配置校验增强          | ✅   | 🟢 P3  | vocab_size/n_layers/dropout/sliding_window |
@@ -226,6 +226,14 @@ Phase 11: ██████████ 100%  工程质量
 ---
 
 ## 📋 每日更新日志
+
+### 2026-02-23
+
+- 🧪 新增 `scripts/smoke_test.py`，一键验证「数据→分词器→预训练」最小链路
+- 🔀 `scripts/launch_ddp.py` 从模板升级为可执行 DDP 预训练入口（支持参数覆盖与断点续训）
+- 🧱 训练循环边界修复：`max_steps=0`、梯度累积余数步、epoch 步数下界
+- 📦 `data` 包改为懒加载 tokenizer，避免 dataset-only 场景被 `sentencepiece` 隐式阻断
+- 📝 同步更新 README / DEPLOY / TECHNICAL_DESIGN / AUTODL 文档
 
 ### 2026-02-19
 

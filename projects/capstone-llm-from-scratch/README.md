@@ -14,7 +14,9 @@
 - 📊 **四档规模** — Tiny 验证 → Mini 学习 → Medium GPU → Large A100
 - 🔄 **完整流水线** — 数据处理 → 预训练 → 指令微调 → 偏好对齐 → 对话推理
 - 🧱 **LoRA 微调** — 低秩适配器，少参数高效微调
-- 🧪 **单元测试** — 86 个测试用例，覆盖所有核心模块
+- 🧪 **单元测试** — 覆盖核心模块，支持边界条件回归测试
+- ✅ **Smoke Test** — 一条命令验证数据→分词器→预训练最小链路
+- 🔀 **DDP 训练入口** — 支持 `torchrun` 多 GPU 预训练
 - 🚀 **一键部署** — FastAPI / Gradio / Docker / GGUF 导出
 
 ## 🏷️ 模型家族
@@ -65,7 +67,8 @@ capstone-llm-from-scratch/
 │   ├── train_tokenizer.py   #    BPE 分词器训练
 │   ├── train.py             #    统一训练入口 (--stage pretrain/sft/dpo)
 │   ├── chat.py              #    交互式对话
-│   ├── launch_ddp.py        #    DDP 多 GPU 启动脚本
+│   ├── launch_ddp.py        #    DDP 多 GPU 预训练入口 (torchrun)
+│   ├── smoke_test.py        #    端到端最小链路冒烟测试
 │   └── autodl_train.sh      #    AutoDL 一键训练
 ├── evaluate/                # 📊 评估模块
 │   ├── eval_perplexity.py   #    困惑度评估 (支持 --compare 阶段对比)
@@ -78,7 +81,7 @@ capstone-llm-from-scratch/
 │   ├── export_model.py      #    模型导出 (权重瘦身/量化)
 │   ├── export_gguf.py       #    GGUF 格式导出 (llama.cpp 兼容)
 │   └── Dockerfile           #    Docker 容器化
-├── tests/                   # 🧪 单元测试 (86 个用例)
+├── tests/                   # 🧪 单元测试
 │   ├── conftest.py          #    共享 fixture (tiny_config, tiny_model)
 │   ├── test_model.py        #    GPT 模型测试
 │   ├── test_attention.py    #    Attention + GQA + KV Cache 测试
@@ -87,6 +90,7 @@ capstone-llm-from-scratch/
 │   ├── test_generate.py     #    文本生成测试
 │   ├── test_datasets.py     #    数据集测试 (Pretrain/SFT/DPO)
 │   ├── test_trainer_utils.py #    训练工具测试
+│   ├── test_training_edge_cases.py # 训练边界条件测试
 │   └── test_lora.py         #    LoRA 测试
 ├── docs/                    # 📚 项目文档
 │   ├── PRD.md               #    产品需求文档
@@ -138,7 +142,8 @@ bash run.sh
   4) 从 DPO 继续
   5) 仅对话
   6) 仅训练分词器
-  7) 运行测试
+  7) 运行测试  (失败自动回退兼容模式)
+  8) 冒烟测试  (数据 → 分词器 → 预训练1步, tiny)
 ```
 
 <details>
@@ -166,6 +171,53 @@ python scripts/chat.py [--config configs/xxx.yaml]
 ```
 
 </details>
+
+### 🧪 端到端 Smoke Test（最小链路）
+
+用于快速验证“数据准备 → 分词器 → 预训练”是否可跑通：
+
+```bash
+python scripts/smoke_test.py --max_steps 1
+```
+
+可选参数：
+
+```bash
+python scripts/smoke_test.py --max_steps 2 --work_dir outputs/smoke --clean
+```
+
+> [!NOTE]
+> `smoke_test.py` 依赖 `sentencepiece`。如提示缺失，请先执行 `pip install -r requirements.txt`。
+
+### 🔀 多 GPU 预训练（DDP）
+
+在多 GPU 机器上使用 `torchrun` 启动：
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/medium.yaml \
+  --data data/pretrain/pretrain_data.jsonl \
+  --tokenizer outputs/tokenizer/tokenizer.model
+```
+
+常用参数覆盖：
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/medium.yaml \
+  --max_steps 2000 \
+  --batch_size 4 \
+  --gradient_accumulation 8 \
+  --output_dir outputs/pretrain_ddp
+```
+
+断点续训：
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/medium.yaml \
+  --resume outputs/pretrain_ddp/checkpoint_step1000.pth
+```
 
 ## 🏗️ 技术架构
 
@@ -252,8 +304,14 @@ python deploy/api_server.py --model outputs/dpo/final.pth
 ## 🧪 单元测试
 
 ```bash
-# 运行全部测试 (86 个用例)
+# 运行全部测试
 python -m pytest tests/ -v
+```
+
+如果你的环境有第三方 `pytest` 插件冲突，可临时禁用自动加载：
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q tests
 ```
 
 测试覆盖全部核心模块:
@@ -267,6 +325,7 @@ python -m pytest tests/ -v
 | 文本生成   | 长度控制, Greedy 确定性, EOS 停止         |
 | 数据集     | Pretrain/SFT/DPO 加载与 loss mask         |
 | 训练工具   | LR 调度, Early Stopping, 梯度裁剪         |
+| 训练边界   | zero-step、梯度累积余数、懒加载导入        |
 | LoRA       | apply/merge/save/load                     |
 
 ## 📖 学习路线

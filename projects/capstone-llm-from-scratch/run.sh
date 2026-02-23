@@ -56,9 +56,10 @@ echo -e "  ${BOLD}3)${NC} 从 SFT 继续  (需已有预训练模型)"
 echo -e "  ${BOLD}4)${NC} 从 DPO 继续  (需已有 SFT 模型)"
 echo -e "  ${BOLD}5)${NC} 仅对话    (需已有训练好的模型)"
 echo -e "  ${BOLD}6)${NC} 仅训练分词器"
-echo -e "  ${BOLD}7)${NC} 运行测试  pytest"
+echo -e "  ${BOLD}7)${NC} 运行测试  pytest (失败自动回退兼容模式)"
+echo -e "  ${BOLD}8)${NC} 冒烟测试  数据 → 分词器 → 预训练(1步, tiny)"
 echo ""
-read -p "  请选择 [1-7, 默认 1]: " flow_choice
+read -p "  请选择 [1-8, 默认 1]: " flow_choice
 FLOW="${flow_choice:-1}"
 
 echo ""
@@ -108,7 +109,10 @@ case $FLOW in
         run_step "训练分词器"        "python scripts/train_tokenizer.py --config $CONFIG"
         ;;
     7)  # 运行测试
-        run_step "运行单元测试"      "python -m pytest tests/ -v"
+        run_step "运行单元测试"      "python -m pytest tests/ -v || (echo '  ⚠️ pytest 插件冲突, 自动回退兼容模式' && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q tests)"
+        ;;
+    8)  # 冒烟测试
+        run_step "运行端到端冒烟测试" "python scripts/smoke_test.py --config configs/tiny.yaml --max_steps 1 --work_dir outputs/smoke --clean"
         ;;
     *)
         echo -e "${RED}  ❌ 无效选择${NC}"; exit 1

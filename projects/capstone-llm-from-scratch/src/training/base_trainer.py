@@ -183,6 +183,21 @@ class BaseTrainer(ABC):
         self.optimizer.zero_grad()
         return grad_norm, lr
 
+    def _rescale_grads_for_remainder(self, micro_count: int) -> None:
+        """修正不足梯度累积步数时的梯度缩放。
+
+        常规路径中 loss 会除以 gradient_accumulation。
+        当一个 epoch 末尾只剩余 micro_count(<gradient_accumulation) 个 micro-batch 时，
+        这里把梯度按比例放大，避免最后一次更新被系统性缩小。
+        """
+        if micro_count <= 0 or micro_count >= self.gradient_accumulation:
+            return
+
+        scale = self.gradient_accumulation / micro_count
+        for param in self.model.parameters():
+            if param.grad is not None:
+                param.grad.mul_(scale)
+
     def _save(self, step: int, loss: float, filename: str) -> None:
         """保存 checkpoint"""
         save_checkpoint(

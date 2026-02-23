@@ -187,6 +187,27 @@ python scripts/train.py --stage sft --config configs/large.yaml
 python scripts/train.py --stage dpo --config configs/large.yaml
 ```
 
+### 方式四: 多卡 DDP 预训练（可选）
+
+当你租用多卡实例（如 2×A100 或 4×A800）时，可用 `torchrun` 提升预训练吞吐：
+
+```bash
+# 示例: 4 卡 DDP 预训练
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/large.yaml \
+  --data data/pretrain/pretrain_data.jsonl \
+  --tokenizer outputs/tokenizer/tokenizer.model \
+  --output_dir outputs/pretrain_ddp
+```
+
+断点续训：
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/large.yaml \
+  --resume outputs/pretrain_ddp/checkpoint_step1000.pth
+```
+
 ### ⚠️ 用 tmux 防止 SSH 断连
 
 ```bash
@@ -354,9 +375,9 @@ python scripts/train.py --stage pretrain --config configs/large.yaml \
 **Q: 训练中断了怎么恢复?**
 
 ```bash
-# 从最近的 checkpoint 恢复
+# 从已有 checkpoint 恢复
 python scripts/train.py --stage pretrain --config configs/large.yaml \
-    --resume outputs/pretrain/checkpoint_latest.pth
+    --resume outputs/pretrain/checkpoint_step1000.pth
 ```
 
 **Q: `torch.amp.GradScaler` 报错?**

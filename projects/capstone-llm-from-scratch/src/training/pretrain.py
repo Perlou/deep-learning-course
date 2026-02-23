@@ -99,6 +99,8 @@ class PreTrainer(BaseTrainer):
             resume_from: Checkpoint 路径 (用于断点续训)
         """
         start_step = 0
+        avg_loss = 0.0
+        stopped_early = False
 
         # 断点续训
         if resume_from and os.path.exists(resume_from):
@@ -110,7 +112,13 @@ class PreTrainer(BaseTrainer):
                 device=self.device,
             )
             start_step = info["step"]
+            avg_loss = float(info.get("loss", 0.0))
             print(f"🔄 从 step {start_step} 恢复训练")
+
+        if start_step >= self.max_steps:
+            print("✅ 当前 checkpoint 已达到或超过 max_steps，无需继续训练")
+            self._finalize(start_step, avg_loss, "pretrain_log.jsonl")
+            return
 
         print(f"\n{'=' * 60}")
         print(f"🚀 开始预训练 (step {start_step} → {self.max_steps})")
@@ -170,6 +178,8 @@ class PreTrainer(BaseTrainer):
             if self.val_loader and (step + 1) % self.eval_every == 0:
                 val_loss = self._validate_loss(step)
                 if self._check_early_stopping(val_loss, step + 1, "val_loss"):
+                    step += 1
+                    stopped_early = True
                     break
 
             # ========== Checkpoint ==========
@@ -183,4 +193,4 @@ class PreTrainer(BaseTrainer):
             step += 1
 
         # ========== 训练结束 ==========
-        self._finalize(step, avg_loss, "pretrain_log.jsonl")
+        self._finalize(step, avg_loss, "pretrain_log.jsonl", stopped_early)

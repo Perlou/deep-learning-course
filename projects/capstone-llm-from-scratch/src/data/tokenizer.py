@@ -23,7 +23,14 @@ BPE 算法简述:
 import os
 from pathlib import Path
 
-import sentencepiece as spm
+try:
+    import sentencepiece as spm
+except ModuleNotFoundError as exc:
+    if exc.name == "sentencepiece":
+        raise ModuleNotFoundError(
+            "缺少依赖 `sentencepiece`，请先运行 `pip install -r requirements.txt`。"
+        ) from exc
+    raise
 
 
 class ClearMindTokenizer:

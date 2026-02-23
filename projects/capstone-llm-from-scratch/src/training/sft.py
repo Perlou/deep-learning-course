@@ -14,6 +14,7 @@ SFT 与预训练的关键区别:
   Pre-training → SFT → DPO
 """
 
+import math
 import os
 
 import torch
@@ -62,7 +63,9 @@ class SFTTrainer(BaseTrainer):
 
         # SFT 特有: epoch-based 训练
         self.epochs = config.get("epochs", 3)
-        self.steps_per_epoch = len(self.train_loader) // self.gradient_accumulation
+        self.steps_per_epoch = max(
+            1, math.ceil(len(self.train_loader) / self.gradient_accumulation)
+        )
         self.max_steps = self.steps_per_epoch * self.epochs
 
         # 学习率调度器
@@ -113,6 +116,7 @@ class SFTTrainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             micro_count = 0
+            micro_loss_sum = 0.0
 
             for batch in self.train_loader:
                 input_ids = batch["input_ids"].to(self.device)
@@ -131,27 +135,48 @@ class SFTTrainer(BaseTrainer):
                     scaled_loss.backward()
 
                 micro_count += 1
+                micro_loss_sum += loss.item()
 
                 if micro_count >= self.gradient_accumulation:
                     # 参数更新
                     grad_norm, lr = self._optimizer_step()
+                    avg_step_loss = micro_loss_sum / micro_count
 
                     # 日志
                     self.logger.log(
                         step=step,
                         max_steps=self.max_steps,
-                        loss=loss.item(),
+                        loss=avg_step_loss,
                         lr=lr,
                         grad_norm=grad_norm,
                     )
 
-                    epoch_loss += loss.item()
+                    epoch_loss += avg_step_loss
                     epoch_steps += 1
                     step += 1
                     micro_count = 0
+                    micro_loss_sum = 0.0
 
                     if step >= self.max_steps:
                         break
+
+            # 处理 epoch 尾部不足梯度累积步数的剩余 micro-batch
+            if 0 < micro_count and step < self.max_steps:
+                self._rescale_grads_for_remainder(micro_count)
+                grad_norm, lr = self._optimizer_step()
+                avg_step_loss = micro_loss_sum / micro_count
+
+                self.logger.log(
+                    step=step,
+                    max_steps=self.max_steps,
+                    loss=avg_step_loss,
+                    lr=lr,
+                    grad_norm=grad_norm,
+                )
+
+                epoch_loss += avg_step_loss
+                epoch_steps += 1
+                step += 1
 
             if epoch_steps > 0:
                 avg_epoch_loss = epoch_loss / epoch_steps
@@ -170,6 +195,9 @@ class SFTTrainer(BaseTrainer):
                 avg_epoch_loss,
                 f"epoch{epoch + 1}.pth",
             )
+
+            if step >= self.max_steps:
+                break
 
         # ========== 训练结束 ==========
         self._finalize(step, avg_epoch_loss, "sft_log.jsonl", stopped_early)

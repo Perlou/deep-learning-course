@@ -2,6 +2,8 @@
 
 import pytest
 
+pytest.importorskip("sentencepiece")
+
 from data.tokenizer import ClearMindTokenizer
 
 

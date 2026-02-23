@@ -12,6 +12,7 @@
 - [部署方式二: Web 演示界面](#部署方式二-web-演示界面)
 - [部署方式三: Docker 容器化](#部署方式三-docker-容器化)
 - [模型导出与优化](#模型导出与优化)
+- [多 GPU 训练 (DDP)](#多-gpu-训练-ddp)
 - [性能调优](#性能调优)
 - [常见问题](#常见问题)
 
@@ -317,6 +318,49 @@ python deploy/export_model.py \
 | ClearMind-Mini | ~200 MB         | ~100 MB | ~25 MB    |
 | ClearMind      | ~1.6 GB         | ~800 MB | ~200 MB   |
 | ClearMind-Plus | ~3.7 GB         | ~1.9 GB | ~475 MB   |
+
+---
+
+## 多 GPU 训练 (DDP)
+
+> [!NOTE]
+> 该章节用于训练加速，不属于部署阶段，但与生产环境准备常常同时进行。
+
+### 前置条件
+
+- 多张 CUDA GPU
+- 已准备好的数据与分词器
+- 使用 `torchrun` 启动
+
+### 启动命令
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/medium.yaml \
+  --data data/pretrain/pretrain_data.jsonl \
+  --tokenizer outputs/tokenizer/tokenizer.model \
+  --output_dir outputs/pretrain_ddp
+```
+
+### 常用覆盖参数
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/medium.yaml \
+  --max_steps 2000 \
+  --batch_size 4 \
+  --gradient_accumulation 8 \
+  --save_every 200 \
+  --log_every 10
+```
+
+### 断点续训
+
+```bash
+torchrun --nproc_per_node=4 scripts/launch_ddp.py \
+  --config configs/medium.yaml \
+  --resume outputs/pretrain_ddp/checkpoint_step1000.pth
+```
 
 ---
 

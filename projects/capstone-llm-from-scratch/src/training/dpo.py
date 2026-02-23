@@ -25,6 +25,7 @@ DPO 核心思想:
 """
 
 import copy
+import math
 import os
 
 import torch
@@ -79,7 +80,9 @@ class DPOTrainer(BaseTrainer):
 
         # Epoch-based 训练
         self.epochs = config.get("epochs", 1)
-        self.steps_per_epoch = len(self.train_loader) // self.gradient_accumulation
+        self.steps_per_epoch = max(
+            1, math.ceil(len(self.train_loader) / self.gradient_accumulation)
+        )
         self.max_steps = self.steps_per_epoch * self.epochs
 
         # 学习率调度器
@@ -267,6 +270,7 @@ class DPOTrainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             micro_count = 0
+            micro_loss_sum = 0.0
 
             for batch in self.train_loader:
                 # 取出 chosen 和 rejected 数据
@@ -310,15 +314,17 @@ class DPOTrainer(BaseTrainer):
                     scaled_loss.backward()
 
                 micro_count += 1
+                micro_loss_sum += loss.item()
 
                 if micro_count >= self.gradient_accumulation:
                     grad_norm, lr = self._optimizer_step()
+                    avg_step_loss = micro_loss_sum / micro_count
 
                     # 日志
                     self.logger.log(
                         step=step,
                         max_steps=self.max_steps,
-                        loss=loss.item(),
+                        loss=avg_step_loss,
                         lr=lr,
                         grad_norm=grad_norm,
                     )
@@ -338,14 +344,40 @@ class DPOTrainer(BaseTrainer):
                             f"margin={metrics['reward_margin']:.4f}"
                         )
 
-                    epoch_loss += loss.item()
+                    epoch_loss += avg_step_loss
                     epoch_accuracy += metrics["accuracy"]
                     epoch_steps += 1
                     step += 1
                     micro_count = 0
+                    micro_loss_sum = 0.0
 
                     if step >= self.max_steps:
                         break
+
+            # 处理 epoch 尾部不足梯度累积步数的剩余 micro-batch
+            if 0 < micro_count and step < self.max_steps:
+                self._rescale_grads_for_remainder(micro_count)
+                grad_norm, lr = self._optimizer_step()
+                avg_step_loss = micro_loss_sum / micro_count
+
+                self.logger.log(
+                    step=step,
+                    max_steps=self.max_steps,
+                    loss=avg_step_loss,
+                    lr=lr,
+                    grad_norm=grad_norm,
+                )
+
+                if self.logger.tb_writer:
+                    self.logger.tb_writer.add_scalar("dpo/accuracy", metrics["accuracy"], step)
+                    self.logger.tb_writer.add_scalar(
+                        "dpo/reward_margin", metrics["reward_margin"], step
+                    )
+
+                epoch_loss += avg_step_loss
+                epoch_accuracy += metrics["accuracy"]
+                epoch_steps += 1
+                step += 1
 
             if epoch_steps > 0:
                 print(
@@ -367,6 +399,9 @@ class DPOTrainer(BaseTrainer):
                 if self._check_early_stopping(val_accuracy, step, "val_accuracy"):
                     stopped_early = True
                     break
+
+            if step >= self.max_steps:
+                break
 
         # ========== 训练结束 ==========
         final_loss = epoch_loss / max(epoch_steps, 1)
