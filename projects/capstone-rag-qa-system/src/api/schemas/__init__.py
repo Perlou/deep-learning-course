@@ -285,3 +285,80 @@ class StatsResponse(BaseModel):
     conversations: int
     messages: int
     storage_used: int
+
+
+# ============================================
+# 评估模型
+# ============================================
+
+
+class EvalLLMConfig(BaseModel):
+    """评估 LLM 配置"""
+
+    provider: str = Field("ollama", description="LLM 提供方: ollama/openai/dashscope")
+    model: Optional[str] = Field(None, description="模型名称")
+    api_key: Optional[str] = Field(None, description="API 密钥")
+    base_url: Optional[str] = Field(None, description="API 地址")
+
+
+class EvalRunRequest(BaseModel):
+    """启动评估任务请求"""
+
+    kb_id: str = Field(..., description="知识库 ID")
+    dataset_id: str = Field("default", description="评估数据集 ID")
+    metrics: Optional[List[str]] = Field(
+        None, description="要计算的指标列表，默认使用全部"
+    )
+    eval_llm: Optional[EvalLLMConfig] = Field(
+        None, description="评估用 LLM 配置，默认使用配置文件中的设置"
+    )
+
+
+class EvalTaskResponse(BaseModel):
+    """评估任务简要响应"""
+
+    task_id: str
+    kb_id: str
+    status: str
+    progress: int = 0
+    metrics: List[str] = []
+    eval_llm_provider: str = "ollama"
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class EvalSampleScores(BaseModel):
+    """单样本评分"""
+
+    question: str
+    answer: str
+    ground_truth: str
+    contexts: List[str] = []
+    scores: Dict[str, Optional[float]] = {}
+
+
+class EvalReportResponse(BaseModel):
+    """评估报告响应"""
+
+    task_id: str
+    summary: Dict[str, float]
+    per_sample: List[EvalSampleScores]
+    metadata: Dict[str, Any] = {}
+
+
+class EvalDatasetCreate(BaseModel):
+    """创建评估数据集请求"""
+
+    name: str = Field(..., min_length=1, max_length=100, description="数据集名称")
+    data: List[Dict[str, str]] = Field(
+        ..., description="QA 对列表，每条需包含 question 和 ground_truth"
+    )
+
+
+class EvalDatasetResponse(BaseModel):
+    """评估数据集响应"""
+
+    id: str
+    name: str
+    sample_count: int
+    created_at: datetime

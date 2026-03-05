@@ -9,7 +9,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import chat_router, documents_router, kb_router, system_router
+from src.api.routes import (
+    chat_router,
+    documents_router,
+    evaluation_router,
+    kb_router,
+    system_router,
+)
 from src.models import init_async_db
 from src.utils import get_settings, init_directories, setup_logger
 
@@ -67,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
     app.include_router(system_router, prefix="/api/v1")
+    app.include_router(evaluation_router, prefix="/api/v1")
 
     # 根路由
     @app.get("/", tags=["Root"])

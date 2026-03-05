@@ -67,6 +67,10 @@ data/uploads/*
 !data/uploads/.gitkeep
 data/indices/*
 !data/indices/.gitkeep
+data/eval/results/*
+!data/eval/results/.gitkeep
+data/eval/datasets/*
+!data/eval/datasets/.gitkeep
 
 # Model weights (large files)
 *.bin

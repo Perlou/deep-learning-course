@@ -87,3 +87,23 @@ logging:
   rotation: "10 MB"
   retention: "7 days"
   log_dir: ./logs
+
+# ============================================
+# 评估配置 (Ragas)
+# ============================================
+evaluation:
+  # 评估用 LLM（与业务 LLM 独立）
+  eval_llm:
+    provider: ollama # ollama | openai | dashscope
+    model: qwen2.5:7b # 模型名称
+    # api_key: ${OPENAI_API_KEY}   # 线上模式 API 密钥
+    # base_url: ~                   # 线上模式 API 地址
+  default_metrics:
+    - faithfulness
+    - answer_relevancy
+    - context_precision
+    - context_recall
+    - answer_correctness
+  dataset_path: ./data/eval/eval_dataset.json
+  results_dir: ./data/eval/results
+  batch_size: 5

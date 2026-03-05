@@ -13,6 +13,7 @@
 - 📄 **多格式解析** - PDF、Word、TXT、Markdown
 - 💬 **流式对话** - 打字机效果，实时响应
 - 📚 **来源追溯** - 自动标注引用来源
+- 📊 **Ragas 评估** - 系统化 RAG 质量评估，支持本地/线上 LLM
 
 ---
 
@@ -70,12 +71,13 @@ USE_OLLAMA=true ./scripts/start_backend.sh
 | 💬 智能问答 | RAG 精准问答           |
 | 🔄 流式输出 | SSE 实时响应           |
 | 📚 来源引用 | 可折叠的引用卡片       |
+| 📊 RAG 评估 | Ragas 多维度质量评估   |
 
 ---
 
 ## 🛠️ 技术栈
 
-**后端**: FastAPI + SQLite + FAISS + BGE-Large-ZH + Ollama  
+**后端**: FastAPI + SQLite + FAISS + BGE-Large-ZH + Ollama + Ragas  
 **前端**: React 18 + TypeScript + Vite + Tailwind CSS
 
 ---

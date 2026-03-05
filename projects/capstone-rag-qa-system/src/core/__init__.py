@@ -12,6 +12,14 @@ from .document_processor import (
     process_document_task,
 )
 from .embedder import Embedder, get_embedder
+from .evaluator import RAGEvaluator, EvalDataset, EvalResult, AVAILABLE_METRICS
+from .langchain_adapters import (
+    get_eval_llm,
+    get_eval_embeddings,
+    OllamaLangChainLLM,
+    OnlineLangChainLLM,
+    DocuMindEmbeddings,
+)
 from .llm_engine import LLMEngine, get_llm_engine, init_llm_engine
 from .ollama_engine import OllamaEngine, get_ollama_engine
 from .retriever import Retriever, RetrievalResult, get_retriever
@@ -55,4 +63,15 @@ __all__ = [
     "ChatResult",
     "StreamEvent",
     "get_chat_service",
+    # Evaluator
+    "RAGEvaluator",
+    "EvalDataset",
+    "EvalResult",
+    "AVAILABLE_METRICS",
+    # LangChain Adapters
+    "get_eval_llm",
+    "get_eval_embeddings",
+    "OllamaLangChainLLM",
+    "OnlineLangChainLLM",
+    "DocuMindEmbeddings",
 ]

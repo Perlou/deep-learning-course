@@ -19,12 +19,13 @@
 
 ### 1.2 接口分类
 
-| 模块   | 前缀         | 说明           |
-| ------ | ------------ | -------------- |
-| 知识库 | `/kb`        | 知识库 CRUD    |
-| 文档   | `/documents` | 文档上传与管理 |
-| 问答   | `/chat`      | 对话问答       |
-| 系统   | `/system`    | 健康检查等     |
+| 模块   | 前缀          | 说明           |
+| ------ | ------------- | -------------- |
+| 知识库 | `/kb`         | 知识库 CRUD    |
+| 文档   | `/documents`  | 文档上传与管理 |
+| 问答   | `/chat`       | 对话问答       |
+| 系统   | `/system`     | 健康检查等     |
+| 评估   | `/evaluation` | RAG 评估管理   |
 
 ### 1.3 通用响应格式
 
@@ -835,6 +836,278 @@ const ws = new WebSocket("ws://localhost:8000/api/v1/ws/chat");
   "message_id": "msg_abc123"
 }
 ```
+
+---
+
+## 7. 评估接口
+
+### 7.1 启动评估任务
+
+**POST** `/api/v1/evaluation/run`
+
+启动 Ragas RAG 评估任务（后台异步执行）。
+
+**请求体**:
+
+```json
+{
+  "kb_id": "kb_a1b2c3d4",
+  "dataset_id": "default",
+  "metrics": [
+    "faithfulness",
+    "answer_relevancy",
+    "context_precision",
+    "context_recall",
+    "answer_correctness"
+  ],
+  "eval_llm": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "api_key": "sk-...",
+    "base_url": "https://api.openai.com/v1"
+  }
+}
+```
+
+| 参数              | 类型     | 必填 | 说明                                       |
+| ----------------- | -------- | ---- | ------------------------------------------ |
+| kb_id             | string   | 是   | 要评估的知识库 ID                          |
+| dataset_id        | string   | 否   | 评估数据集 ID，默认 "default"              |
+| metrics           | string[] | 否   | 要计算的指标，默认使用配置文件中的全部指标 |
+| eval_llm          | object   | 否   | 评估用 LLM 配置，默认使用配置文件中的设置  |
+| eval_llm.provider | string   | 否   | `ollama` / `openai` / `dashscope`          |
+| eval_llm.model    | string   | 否   | 模型名称                                   |
+| eval_llm.api_key  | string   | 否   | API 密钥（线上模式）                       |
+| eval_llm.base_url | string   | 否   | API 地址（线上模式）                       |
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "task_id": "eval_abc123",
+    "status": "running",
+    "created_at": "2026-03-05T12:00:00Z"
+  }
+}
+```
+
+---
+
+### 7.2 获取评估任务列表
+
+**GET** `/api/v1/evaluation/tasks`
+
+**查询参数**:
+
+| 参数      | 类型   | 必填 | 说明                                                       |
+| --------- | ------ | ---- | ---------------------------------------------------------- |
+| kb_id     | string | 否   | 按知识库筛选                                               |
+| status    | string | 否   | 按状态筛选：`pending` / `running` / `completed` / `failed` |
+| page      | int    | 否   | 页码，默认 1                                               |
+| page_size | int    | 否   | 每页数量，默认 20                                          |
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "task_id": "eval_abc123",
+        "kb_id": "kb_a1b2c3d4",
+        "status": "completed",
+        "progress": 100,
+        "metrics": ["faithfulness", "answer_relevancy"],
+        "eval_llm_provider": "openai",
+        "created_at": "2026-03-05T12:00:00Z",
+        "completed_at": "2026-03-05T12:15:00Z"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+---
+
+### 7.3 获取评估任务状态
+
+**GET** `/api/v1/evaluation/tasks/{task_id}`
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "task_id": "eval_abc123",
+    "kb_id": "kb_a1b2c3d4",
+    "status": "running",
+    "progress": 60,
+    "total_samples": 20,
+    "completed_samples": 12,
+    "current_step": "正在评估第 12/20 条数据...",
+    "metrics": ["faithfulness", "answer_relevancy"],
+    "eval_llm_provider": "openai",
+    "created_at": "2026-03-05T12:00:00Z"
+  }
+}
+```
+
+**评估状态**:
+
+| 状态      | 说明       |
+| --------- | ---------- |
+| pending   | 排队等待   |
+| running   | 评估进行中 |
+| completed | 评估完成   |
+| failed    | 评估失败   |
+
+---
+
+### 7.4 获取评估报告
+
+**GET** `/api/v1/evaluation/tasks/{task_id}/report`
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "task_id": "eval_abc123",
+    "summary": {
+      "faithfulness": 0.85,
+      "answer_relevancy": 0.78,
+      "context_precision": 0.72,
+      "context_recall": 0.8,
+      "answer_correctness": 0.68
+    },
+    "per_sample": [
+      {
+        "question": "DocuMind AI 支持哪些文档格式？",
+        "answer": "根据文档，系统支持 PDF、DOCX...",
+        "ground_truth": "支持 PDF、Word、TXT 和 Markdown。",
+        "contexts": ["文档支持格式包括..."],
+        "scores": {
+          "faithfulness": 0.9,
+          "answer_relevancy": 0.85,
+          "context_precision": 0.8,
+          "context_recall": 0.75,
+          "answer_correctness": 0.7
+        }
+      }
+    ],
+    "metadata": {
+      "total_samples": 20,
+      "eval_llm": "openai/gpt-4o-mini",
+      "duration_seconds": 900,
+      "created_at": "2026-03-05T12:00:00Z",
+      "completed_at": "2026-03-05T12:15:00Z"
+    }
+  }
+}
+```
+
+---
+
+### 7.5 删除评估任务
+
+**DELETE** `/api/v1/evaluation/tasks/{task_id}`
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "task_id": "eval_abc123",
+    "deleted": true
+  }
+}
+```
+
+---
+
+### 7.6 获取评估数据集列表
+
+**GET** `/api/v1/evaluation/datasets`
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "id": "default",
+        "name": "默认评估数据集",
+        "sample_count": 10,
+        "created_at": "2026-03-05T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 7.7 上传评估数据集
+
+**POST** `/api/v1/evaluation/datasets`
+
+**请求体**:
+
+```json
+{
+  "name": "自定义评估集",
+  "data": [
+    {
+      "question": "什么是向量检索？",
+      "ground_truth": "向量检索是通过计算向量之间的相似度来查找相关文档的技术。",
+      "kb_id": "kb_a1b2c3d4"
+    }
+  ]
+}
+```
+
+**响应**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "id": "dataset_xyz789",
+    "name": "自定义评估集",
+    "sample_count": 1,
+    "created_at": "2026-03-05T12:30:00Z"
+  }
+}
+```
+
+---
+
+### 7.8 错误码补充
+
+| 错误码 | 说明               |
+| ------ | ------------------ |
+| 40010  | 评估数据集不存在   |
+| 40011  | 评估任务不存在     |
+| 40012  | 评估数据集格式错误 |
+| 50003  | 评估 LLM 连接失败  |
 
 ---
 
