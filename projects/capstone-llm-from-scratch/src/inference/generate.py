@@ -69,6 +69,10 @@ def generate(
                 penalty_logits * repetition_penalty,
             )
 
+        # 安全检查: 替换 nan/inf 为 0
+        if torch.isnan(logits).any() or torch.isinf(logits).any():
+            logits = torch.nan_to_num(logits, nan=0.0, posinf=1e4, neginf=-1e4)
+
         # Temperature scaling
         if temperature > 0:
             scaled_logits = logits / temperature
@@ -110,6 +114,9 @@ def generate(
 
         # 采样
         probs = F.softmax(scaled_logits, dim=-1)
+        # 防止全 -inf 导致 nan
+        if torch.isnan(probs).any():
+            probs = torch.ones_like(probs) / probs.size(-1)
         next_token = torch.multinomial(probs, num_samples=1)
 
         input_ids = torch.cat([input_ids, next_token], dim=1)

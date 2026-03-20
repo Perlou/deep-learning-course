@@ -32,20 +32,24 @@ pretrain:
   min_lr: 1.0e-5
   weight_decay: 0.1
   warmup_steps: 4000           # 更充分的 warmup
-  save_every: 10000
+  save_every: 5000             # 更频繁保存，防止中断丢失进度
   eval_every: 2000
+  num_workers: 2               # CUDA 下多进程数据加载
   dtype: bfloat16              # A100 原生 BF16
+  patience: 5                  # Early Stopping
+  use_tensorboard: true        # 监控 loss 曲线
 
 sft:
   batch_size: 8
   gradient_accumulation: 8     # 有效 batch = 64
-  epochs: 2
+  epochs: 3                    # 数据量充足，多训一轮
   lr: 1.0e-5
   weight_decay: 0.01
+  num_workers: 2
   dtype: bfloat16
   log_every: 100
   patience: 3
-  use_tensorboard: false
+  use_tensorboard: true
 
 dpo:
   batch_size: 4
@@ -53,10 +57,11 @@ dpo:
   epochs: 1
   lr: 3.0e-6
   beta: 0.1
+  num_workers: 2
   dtype: bfloat16
   log_every: 100
   patience: 3
-  use_tensorboard: false
+  use_tensorboard: true
 
 generation:
   max_new_tokens: 1024
