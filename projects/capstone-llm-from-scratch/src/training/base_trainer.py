@@ -105,11 +105,12 @@ class BaseTrainer(ABC):
         self.effective_batch_size = self.batch_size * self.gradient_accumulation
 
         use_pin = pin_memory and self.device.type == "cuda"
+        num_workers = config.get("num_workers", 0)
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=0,
+            num_workers=num_workers,
             drop_last=True,
             pin_memory=use_pin,
         )
@@ -120,7 +121,7 @@ class BaseTrainer(ABC):
                 val_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
-                num_workers=0,
+                num_workers=num_workers,
                 drop_last=False,
             )
 
@@ -171,21 +172,6 @@ class BaseTrainer(ABC):
     # ----------------------------------------------------------
     # 工具方法
     # ----------------------------------------------------------
-
-    def _backward_and_step(self, loss: torch.Tensor) -> tuple[float, float]:
-        """执行反向传播 + 梯度裁剪 + 优化器更新 + 学习率更新
-
-        Args:
-            loss: 已经除以 gradient_accumulation 的 scaled loss
-
-        Returns:
-            (grad_norm, lr) 梯度范数和当前学习率
-        """
-        if self.scaler:
-            self.scaler.scale(loss).backward()
-        else:
-            loss.backward()
-        return 0.0, 0.0  # placeholder, real values returned by _optimizer_step
 
     def _optimizer_step(self) -> tuple[float, float]:
         """梯度裁剪 + 优化器更新 + 学习率更新

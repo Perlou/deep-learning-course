@@ -16,7 +16,7 @@ class TestModelConfig:
         assert config.d_model == 128
         assert config.n_heads == 4
         assert config.n_layers == 4
-        assert config.vocab_size == 8000
+        assert config.vocab_size == 2000
 
     def test_small_factory(self):
         """small() 应返回有效配置"""

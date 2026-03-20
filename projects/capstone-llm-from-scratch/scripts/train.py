@@ -37,7 +37,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import yaml
-import torch  # noqa: F401
 from src.model.config import ModelConfig
 from src.model.gpt import GPT
 from src.data.tokenizer import ClearMindTokenizer

@@ -15,7 +15,7 @@
 - 🔄 **完整流水线** — 数据处理 → 预训练 → 指令微调 → 偏好对齐 → 对话推理
 - 🧱 **LoRA 微调** — 低秩适配器，少参数高效微调
 - 🧪 **单元测试** — 覆盖核心模块，支持边界条件回归测试
-- ✅ **Smoke Test** — 一条命令验证数据→分词器→预训练最小链路
+- ✅ **Smoke Test** — 一条命令验证数据→分词器→预训练 + SFT + 推理验证
 - 🔀 **DDP 训练入口** — 支持 `torchrun` 多 GPU 预训练
 - 🚀 **一键部署** — FastAPI / Gradio / Docker / GGUF 导出
 
@@ -219,6 +219,18 @@ torchrun --nproc_per_node=4 scripts/launch_ddp.py \
   --resume outputs/pretrain_ddp/checkpoint_step1000.pth
 ```
 
+### 🧱 LoRA 微调
+
+使用 LoRA 进行参数高效微调，只训练少量低秩适配参数：
+
+```bash
+# SFT + LoRA
+python scripts/train.py --stage sft --lora --lora_rank 8 --lora_alpha 16
+
+# 自定义配置
+python scripts/train.py --stage sft --config configs/medium.yaml --lora --lora_rank 16
+```
+
 ## 🏗️ 技术架构
 
 ```
@@ -258,7 +270,7 @@ Loss: Next-token       Loss: 只在 Assistant     Loss: DPO Loss
 | n_kv_heads  | 4 (MHA)        | 8 (MHA)        | 8 (GQA 2:1) | 8 (GQA 4:1)    |
 | n_layers    | 4              | 8              | 16          | 24             |
 | d_ff        | 352            | 1408           | 2816        | 5632           |
-| vocab_size  | 8,000          | 8,000          | 32,000      | 64,000         |
+| vocab_size  | 2,000          | 8,000          | 32,000      | 64,000         |
 | max_seq_len | 128            | 512            | 1024        | 2048           |
 | 精度        | float32        | float32        | bfloat16    | bfloat16       |
 

@@ -61,11 +61,13 @@ def generate(
     for _ in range(max_new_tokens):
         # 重复惩罚: 降低已出现 token 的概率
         if repetition_penalty != 1.0:
-            for token_id in set(input_ids[0].tolist()):
-                if logits[0, token_id] > 0:
-                    logits[0, token_id] /= repetition_penalty
-                else:
-                    logits[0, token_id] *= repetition_penalty
+            unique_ids = torch.unique(input_ids[0])
+            penalty_logits = logits[0, unique_ids]
+            logits[0, unique_ids] = torch.where(
+                penalty_logits > 0,
+                penalty_logits / repetition_penalty,
+                penalty_logits * repetition_penalty,
+            )
 
         # Temperature scaling
         if temperature > 0:

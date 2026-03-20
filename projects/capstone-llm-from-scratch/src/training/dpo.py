@@ -273,6 +273,8 @@ class DPOTrainer(BaseTrainer):
             self.optimizer.zero_grad()
             micro_count = 0
             micro_loss_sum = 0.0
+            micro_accuracy_sum = 0.0
+            micro_margin_sum = 0.0
 
             for batch in self.train_loader:
                 # 取出 chosen 和 rejected 数据
@@ -317,10 +319,14 @@ class DPOTrainer(BaseTrainer):
 
                 micro_count += 1
                 micro_loss_sum += loss.item()
+                micro_accuracy_sum += metrics["accuracy"]
+                micro_margin_sum += metrics["reward_margin"]
 
                 if micro_count >= self.gradient_accumulation:
                     grad_norm, lr = self._optimizer_step()
                     avg_step_loss = micro_loss_sum / micro_count
+                    avg_accuracy = micro_accuracy_sum / micro_count
+                    avg_margin = micro_margin_sum / micro_count
 
                     # 日志
                     self.logger.log(
@@ -334,24 +340,26 @@ class DPOTrainer(BaseTrainer):
                     # TensorBoard DPO 指标
                     if self.logger.tb_writer:
                         self.logger.tb_writer.add_scalar(
-                            "dpo/accuracy", metrics["accuracy"], step
+                            "dpo/accuracy", avg_accuracy, step
                         )
                         self.logger.tb_writer.add_scalar(
-                            "dpo/reward_margin", metrics["reward_margin"], step
+                            "dpo/reward_margin", avg_margin, step
                         )
 
                     if step % 5 == 0:
                         print(
-                            f"  DPO metrics: accuracy={metrics['accuracy']:.2%}, "
-                            f"margin={metrics['reward_margin']:.4f}"
+                            f"  DPO metrics: accuracy={avg_accuracy:.2%}, "
+                            f"margin={avg_margin:.4f}"
                         )
 
                     epoch_loss += avg_step_loss
-                    epoch_accuracy += metrics["accuracy"]
+                    epoch_accuracy += avg_accuracy
                     epoch_steps += 1
                     step += 1
                     micro_count = 0
                     micro_loss_sum = 0.0
+                    micro_accuracy_sum = 0.0
+                    micro_margin_sum = 0.0
 
                     if step >= self.max_steps:
                         break
@@ -361,6 +369,8 @@ class DPOTrainer(BaseTrainer):
                 self._rescale_grads_for_remainder(micro_count)
                 grad_norm, lr = self._optimizer_step()
                 avg_step_loss = micro_loss_sum / micro_count
+                avg_accuracy = micro_accuracy_sum / micro_count
+                avg_margin = micro_margin_sum / micro_count
 
                 self.logger.log(
                     step=step,
@@ -371,13 +381,13 @@ class DPOTrainer(BaseTrainer):
                 )
 
                 if self.logger.tb_writer:
-                    self.logger.tb_writer.add_scalar("dpo/accuracy", metrics["accuracy"], step)
+                    self.logger.tb_writer.add_scalar("dpo/accuracy", avg_accuracy, step)
                     self.logger.tb_writer.add_scalar(
-                        "dpo/reward_margin", metrics["reward_margin"], step
+                        "dpo/reward_margin", avg_margin, step
                     )
 
                 epoch_loss += avg_step_loss
-                epoch_accuracy += metrics["accuracy"]
+                epoch_accuracy += avg_accuracy
                 epoch_steps += 1
                 step += 1
 

@@ -15,7 +15,7 @@ LoRA 核心思想:
   - 部署时可合并回原始权重, 不增加推理开销
 
 典型用法:
-  apply_lora(model, rank=8, target_modules=["q_proj", "v_proj"])
+  apply_lora(model, rank=8, target_modules=["w_q", "w_v"])
   # ... 训练 ...
   merge_lora(model)  # 合并回原始权重
 """
@@ -116,13 +116,13 @@ def apply_lora(
         rank:           LoRA 秩
         alpha:          LoRA 缩放因子
         dropout:        LoRA dropout
-        target_modules: 要适配的模块名 (默认: q_proj, k_proj, v_proj, out_proj)
+        target_modules: 要适配的模块名 (默认: w_q, w_k, w_v, w_o)
 
     Returns:
         应用了 LoRA 的模型 (原地修改)
     """
     if target_modules is None:
-        target_modules = ["q_proj", "k_proj", "v_proj", "out_proj"]
+        target_modules = ["w_q", "w_k", "w_v", "w_o"]
 
     # 冻结所有参数
     for param in model.parameters():

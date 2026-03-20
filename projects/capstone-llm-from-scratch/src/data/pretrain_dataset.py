@@ -22,6 +22,7 @@ PretrainDataset — 预训练数据集
 import os
 import json
 
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
@@ -52,7 +53,7 @@ class PretrainDataset(Dataset):
 
         # 加载并处理数据
         if _tokens is not None:
-            self.data = _tokens
+            self.data = np.array(_tokens, dtype=np.int32) if not isinstance(_tokens, np.ndarray) else _tokens
         else:
             print(f"📦 加载预训练数据: {data_path}")
             self.data = self._load_and_tokenize(data_path)
@@ -60,7 +61,6 @@ class PretrainDataset(Dataset):
         # 计算样本数
         # 每个样本需要 max_seq_len + 1 个 token (input + 最后一个 target)
         self.n_samples = len(self.data) // (max_seq_len + 1)
-        # 截断多余的 token
         self.data = self.data[: self.n_samples * (max_seq_len + 1)]
 
         print(f"  总 token 数: {len(self.data):,}")
@@ -93,7 +93,7 @@ class PretrainDataset(Dataset):
 
         return train_ds, val_ds
 
-    def _load_and_tokenize(self, data_path: str) -> list[int]:
+    def _load_and_tokenize(self, data_path: str) -> np.ndarray:
         """加载数据文件并 tokenize
 
         支持格式:
@@ -105,10 +105,8 @@ class PretrainDataset(Dataset):
 
         if ext == ".bin":
             # 直接加载预处理好的 token 序列
-            import numpy as np
-
             data = np.fromfile(data_path, dtype=np.uint16)
-            return data.tolist()
+            return data.astype(np.int32)
 
         # 从文本文件加载并 tokenize
         all_tokens = []
@@ -135,7 +133,7 @@ class PretrainDataset(Dataset):
         else:
             raise ValueError(f"不支持的文件格式: {ext}, 请使用 .bin, .jsonl 或 .txt")
 
-        return all_tokens
+        return np.array(all_tokens, dtype=np.int32)
 
     def __len__(self) -> int:
         return self.n_samples

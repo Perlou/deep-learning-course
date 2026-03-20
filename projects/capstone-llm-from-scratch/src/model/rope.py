@@ -24,7 +24,6 @@ RoPE 是 Llama、Gemini 等现代 LLM 使用的位置编码方式。
 """
 
 import torch
-import torch.nn as nn
 
 
 def precompute_rope_frequencies(

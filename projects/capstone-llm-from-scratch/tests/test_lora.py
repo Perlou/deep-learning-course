@@ -127,7 +127,7 @@ class TestMergeLoRA:
         merge_lora(tiny_model)
 
         # 模型应仍可正常推理
-        x = torch.randint(0, 8000, (1, 4))
+        x = torch.randint(0, 2000, (1, 4))
         with torch.no_grad():
             logits, _, _ = tiny_model(x)
-        assert logits.shape[-1] == 8000
+        assert logits.shape[-1] == 2000

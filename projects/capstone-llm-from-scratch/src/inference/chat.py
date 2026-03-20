@@ -89,8 +89,8 @@ def chat_loop(
                     elif key == "max_history":
                         max_history = int(value)
                     print(f"  ✅ {key} = {value}")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  ⚠️ 参数修改失败: {e}")
             continue
 
         # 构建多轮对话 prompt

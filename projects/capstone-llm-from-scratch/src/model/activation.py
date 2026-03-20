@@ -5,6 +5,9 @@ SwiGLU — 门控线性单元激活函数
 SwiGLU 是 Llama、Gemini 等现代 LLM 使用的激活函数，
 替代了 Transformer 原始论文中的 ReLU 和 GPT-2 中的 GELU。
 
+注意: 这是一个独立的参考实现，用于教学演示。
+实际模型中使用的是 feedforward.py 中内联的 F.silu 调用。
+
 数学公式:
   SiLU(x) = x · σ(x)      (也叫 Swish 激活函数)
   σ(x) = 1/(1+e^(-x))     (Sigmoid 函数)

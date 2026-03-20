@@ -69,7 +69,7 @@ class ModelConfig:
             n_kv_heads=4,
             n_layers=4,
             d_ff=352,
-            vocab_size=8000,
+            vocab_size=2000,
             max_seq_len=128,
             dropout=0.1,
         )

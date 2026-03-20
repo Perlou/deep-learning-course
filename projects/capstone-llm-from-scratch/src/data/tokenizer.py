@@ -3,7 +3,7 @@ Tokenizer — BPE 分词器封装
 =========================
 
 基于 sentencepiece 的 BPE (Byte Pair Encoding) 分词器。
-为 MiniMind 提供统一的分词接口，支持中英文混合文本。
+为 ClearMind 提供统一的分词接口，支持中英文混合文本。
 
 BPE 算法简述:
   1. 初始化: 将所有文本拆分为字符 (字节)
@@ -34,7 +34,7 @@ except ModuleNotFoundError as exc:
 
 
 class ClearMindTokenizer:
-    """MiniMind 分词器
+    """ClearMind 分词器
 
     封装 sentencepiece 模型，提供简洁的 encode/decode 接口。
 
