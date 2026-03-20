@@ -100,10 +100,11 @@ def generate(
             sorted_logits, sorted_indices = torch.sort(scaled_logits, descending=True)
             cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
-            sorted_mask = cumulative_probs - F.softmax(sorted_logits, dim=-1) > top_p
-            sorted_logits[sorted_mask] = float("-inf")
-
-            scaled_logits = sorted_logits.scatter(1, sorted_indices, sorted_logits)
+            # 移除累积概率超过 top_p 的 token（保留第一个超过的）
+            sorted_indices_to_remove = cumulative_probs - F.softmax(sorted_logits, dim=-1) > top_p
+            # scatter 回原始索引空间
+            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+            scaled_logits[indices_to_remove] = float("-inf")
 
         # 采样
         probs = F.softmax(scaled_logits, dim=-1)

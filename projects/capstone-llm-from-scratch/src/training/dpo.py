@@ -77,6 +77,7 @@ class DPOTrainer(BaseTrainer):
         # DPO 特有参数
         self.beta = config.get("beta", 0.1)
         self.ref_model = None  # train() 中加载 SFT 权重后创建
+        self.pad_token_id = config.get("pad_token_id", 0)
 
         # Epoch-based 训练
         self.epochs = config.get("epochs", 1)
@@ -124,7 +125,8 @@ class DPOTrainer(BaseTrainer):
         Returns:
             对数概率之和 [batch]
         """
-        logits, _, _ = model(input_ids)  # [batch, seq, vocab]
+        attention_mask = (input_ids != self.pad_token_id).long()
+        logits, _, _ = model(input_ids, attention_mask=attention_mask)  # [batch, seq, vocab]
 
         # Shift: logits[:-1] 预测 labels[1:]
         shift_logits = logits[:, :-1, :].contiguous()

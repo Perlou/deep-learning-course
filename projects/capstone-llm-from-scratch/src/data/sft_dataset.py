@@ -26,6 +26,7 @@ Loss Mask 示例:
 
 import json
 import os
+import random
 
 import torch
 from torch.utils.data import Dataset
@@ -39,22 +40,58 @@ class SFTDataset(Dataset):
         data_path:   数据文件路径 (.jsonl 或 .json)
         tokenizer:   分词器实例
         max_seq_len: 最大序列长度
+        _samples:    内部使用 — 直接传入样本列表 (跳过文件加载)
     """
 
     def __init__(
         self,
-        data_path: str,
-        tokenizer,
+        data_path: str = None,
+        tokenizer=None,
         max_seq_len: int = 512,
+        _samples: list[dict] = None,
     ):
         super().__init__()
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
 
         # 加载数据
-        print(f"📦 加载 SFT 数据: {data_path}")
-        self.samples = self._load_data(data_path)
+        if _samples is not None:
+            self.samples = _samples
+        else:
+            print(f"📦 加载 SFT 数据: {data_path}")
+            self.samples = self._load_data(data_path)
         print(f"  样本数: {len(self.samples):,}")
+
+    @classmethod
+    def create_with_split(
+        cls,
+        data_path: str,
+        tokenizer,
+        max_seq_len: int = 512,
+        val_ratio: float = 0.1,
+        seed: int = 42,
+    ) -> tuple["SFTDataset", "SFTDataset"]:
+        """创建训练集和验证集
+
+        加载全部样本后 shuffle → 按索引划分。
+
+        Returns:
+            (train_dataset, val_dataset)
+        """
+        print(f"📦 加载 SFT 数据: {data_path}")
+        temp = cls(data_path=data_path, tokenizer=tokenizer, max_seq_len=max_seq_len)
+        all_samples = temp.samples.copy()
+
+        rng = random.Random(seed)
+        rng.shuffle(all_samples)
+
+        split_idx = int(len(all_samples) * (1 - val_ratio))
+        print(f"📊 数据划分: 训练 {split_idx} 样本, 验证 {len(all_samples) - split_idx} 样本")
+
+        train_ds = cls(_samples=all_samples[:split_idx], tokenizer=tokenizer, max_seq_len=max_seq_len)
+        val_ds = cls(_samples=all_samples[split_idx:], tokenizer=tokenizer, max_seq_len=max_seq_len)
+
+        return train_ds, val_ds
 
     def _load_data(self, data_path: str) -> list[dict]:
         """加载数据文件"""

@@ -147,11 +147,24 @@ class Attention(nn.Module):
         #
         # 训练时: is_causal=True 自动生成 causal mask
         # 推理 decode 时: Q 只有 1 个 token, 不需要 causal mask
+        # 当传入 4D combined mask (causal + padding) 时使用 attn_mask 模式
         kv_len = k_expanded.shape[2]
+        has_explicit_mask = mask is not None and mask.dim() == 4
 
         if seq_len == kv_len:
             # Prefill / 训练: 完整序列
-            if self.sliding_window is not None and self.sliding_window < seq_len:
+            if has_explicit_mask:
+                # 有显式 4D mask (含 padding mask) — 使用 attn_mask 模式
+                attn_mask = mask[:, :, :seq_len, :kv_len] if mask.shape[-1] > kv_len else mask
+                output = F.scaled_dot_product_attention(
+                    q,
+                    k_expanded,
+                    v_expanded,
+                    attn_mask=attn_mask,
+                    dropout_p=self.attn_dropout.p if self.training else 0.0,
+                    is_causal=False,
+                )
+            elif self.sliding_window is not None and self.sliding_window < seq_len:
                 # Sliding Window Attention:
                 # 每个 token 只看最近 window_size 个 token
                 # 构造 mask: causal + sliding window

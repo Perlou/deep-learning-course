@@ -19,8 +19,10 @@ base_trainer.py — Trainer 基类
 """
 
 import os
+import random
 from abc import ABC, abstractmethod
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -79,6 +81,14 @@ class BaseTrainer(ABC):
         self.stage_name = stage_name
         os.makedirs(output_dir, exist_ok=True)
 
+        # ========== 可复现性种子 ==========
+        seed = config.get("seed", 42)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        random.seed(seed)
+        np.random.seed(seed)
+
         # ========== 设备和精度 ==========
         self.device = get_device()
         self.dtype = get_dtype(self.device, config.get("dtype", "float32"))
@@ -114,12 +124,25 @@ class BaseTrainer(ABC):
                 drop_last=False,
             )
 
-        # ========== 优化器 ==========
+        # ========== 优化器 (参数分组) ==========
         self.lr = config.get("lr", default_lr)
+        decay_params = []
+        no_decay_params = []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            # 一维参数 (bias, RMSNorm gamma) 和 embedding 不做 weight decay
+            if param.ndim == 1 or "embedding" in name:
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
+            [
+                {"params": decay_params, "weight_decay": config.get("weight_decay", 0.01)},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ],
             lr=self.lr,
-            weight_decay=config.get("weight_decay", 0.01),
             betas=(0.9, 0.95),
         )
 

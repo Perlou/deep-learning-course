@@ -55,12 +55,14 @@ class TestGPT:
 
     def test_generate(self, tiny_model, tiny_config):
         """generate 应产生正确长度的序列"""
+        from inference.generate import generate
+
         prompt = torch.randint(0, tiny_config.vocab_size, (1, 4))
         max_new = 8
 
         with torch.no_grad():
-            output = tiny_model.generate(
-                prompt, max_new_tokens=max_new, temperature=1.0
+            output = generate(
+                tiny_model, prompt, max_new_tokens=max_new, temperature=1.0, eos_token_id=-1
             )
 
         # 输出长度应至少包含 prompt 长度

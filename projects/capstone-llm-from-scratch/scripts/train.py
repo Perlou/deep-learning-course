@@ -122,16 +122,18 @@ def run_pretrain(args, config, model_config, tokenizer, model):
     train_config["log_every"] = args.log_every
 
     print(f"\n📦 加载训练数据: {args.data}")
-    train_dataset = PretrainDataset(
+    train_dataset, val_dataset = PretrainDataset.create_with_split(
         data_path=args.data,
         tokenizer=tokenizer,
         max_seq_len=model_config.max_seq_len,
+        val_ratio=train_config.get("val_ratio", 0.1),
     )
 
     trainer = PreTrainer(
         model=model,
         train_dataset=train_dataset,
         config=train_config,
+        val_dataset=val_dataset,
         output_dir=args.output_dir,
     )
     trainer.train(resume_from=args.resume)
@@ -150,6 +152,7 @@ def run_sft(args, config, model_config, tokenizer, model):
     if args.batch_size:
         sft_config["batch_size"] = args.batch_size
     sft_config["log_every"] = args.log_every
+    sft_config["pad_token_id"] = tokenizer.pad_id
 
     # 预训练模型路径
     pretrained = args.resume or "outputs/pretrain/final.pth"
@@ -159,16 +162,18 @@ def run_sft(args, config, model_config, tokenizer, model):
         sys.exit(1)
 
     print(f"📦 加载训练数据: {args.data}")
-    train_dataset = SFTDataset(
+    train_dataset, val_dataset = SFTDataset.create_with_split(
         data_path=args.data,
         tokenizer=tokenizer,
         max_seq_len=model_config.max_seq_len,
+        val_ratio=sft_config.get("val_ratio", 0.1),
     )
 
     trainer = SFTTrainer(
         model=model,
         train_dataset=train_dataset,
         config=sft_config,
+        val_dataset=val_dataset,
         output_dir=args.output_dir,
     )
     trainer.train(pretrained_path=pretrained)
@@ -185,6 +190,7 @@ def run_dpo(args, config, model_config, tokenizer, model):
     if args.batch_size:
         dpo_config["batch_size"] = args.batch_size
     dpo_config["log_every"] = args.log_every
+    dpo_config["pad_token_id"] = tokenizer.pad_id
 
     # SFT 模型路径
     sft_model = args.resume or "outputs/sft/final.pth"
@@ -194,16 +200,18 @@ def run_dpo(args, config, model_config, tokenizer, model):
         sys.exit(1)
 
     print(f"📦 加载训练数据: {args.data}")
-    train_dataset = DPODataset(
+    train_dataset, val_dataset = DPODataset.create_with_split(
         data_path=args.data,
         tokenizer=tokenizer,
         max_seq_len=model_config.max_seq_len,
+        val_ratio=dpo_config.get("val_ratio", 0.1),
     )
 
     trainer = DPOTrainer(
         model=model,
         train_dataset=train_dataset,
         config=dpo_config,
+        val_dataset=val_dataset,
         output_dir=args.output_dir,
     )
     trainer.train(sft_path=sft_model)

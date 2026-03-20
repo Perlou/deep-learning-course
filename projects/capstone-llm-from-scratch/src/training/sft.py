@@ -61,6 +61,9 @@ class SFTTrainer(BaseTrainer):
             default_log_every=10,
         )
 
+        # pad_token_id 用于构建 attention mask
+        self.pad_token_id = config.get("pad_token_id", 0)
+
         # SFT 特有: epoch-based 训练
         self.epochs = config.get("epochs", 3)
         self.steps_per_epoch = max(
@@ -121,10 +124,11 @@ class SFTTrainer(BaseTrainer):
             for batch in self.train_loader:
                 input_ids = batch["input_ids"].to(self.device)
                 labels = batch["labels"].to(self.device)
+                attention_mask = (input_ids != self.pad_token_id).long()
 
                 # 前向传播 (混合精度)
                 with amp_autocast(self.device, self.dtype):
-                    logits, loss, _ = self.model(input_ids, labels)
+                    logits, loss, _ = self.model(input_ids, labels, attention_mask=attention_mask)
 
                 # 梯度累积
                 scaled_loss = loss / self.gradient_accumulation

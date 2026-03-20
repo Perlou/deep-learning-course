@@ -10,7 +10,6 @@ chat.py — 交互式对话引擎
 """
 
 import torch
-from typing import Optional
 
 from .generate import generate_text
 
@@ -23,6 +22,7 @@ def chat_loop(
     temperature: float = 0.7,
     top_k: int = 50,
     top_p: float = 0.9,
+    max_history: int = 5,
 ):
     """交互式对话循环
 
@@ -30,12 +30,15 @@ def chat_loop(
         model:     GPT 模型
         tokenizer: 分词器
         device:    设备
+        max_history: 最大保留的对话历史轮数
         其他参数:  生成参数
     """
     if device is None:
         device = next(model.parameters()).device
 
     model.eval()
+
+    history = []  # [(user_msg, assistant_reply), ...]
 
     print("\n" + "=" * 60)
     print("🤖 ClearMind 对话系统")
@@ -60,14 +63,16 @@ def chat_loop(
             break
 
         if user_input.lower() == "clear":
+            history.clear()
             print("🗑️  对话历史已清空")
             continue
 
         if user_input.lower() == "params":
-            print(f"  temperature: {temperature}")
-            print(f"  top_k:       {top_k}")
-            print(f"  top_p:       {top_p}")
-            print(f"  max_tokens:  {max_new_tokens}")
+            print(f"  temperature:  {temperature}")
+            print(f"  top_k:        {top_k}")
+            print(f"  top_p:        {top_p}")
+            print(f"  max_tokens:   {max_new_tokens}")
+            print(f"  max_history:  {max_history}")
             try:
                 param = input("  修改参数 (格式: key=value, 回车跳过): ").strip()
                 if param:
@@ -81,13 +86,15 @@ def chat_loop(
                         top_p = float(value)
                     elif key == "max_tokens":
                         max_new_tokens = int(value)
+                    elif key == "max_history":
+                        max_history = int(value)
                     print(f"  ✅ {key} = {value}")
             except Exception:
                 pass
             continue
 
-        # 构建对话 prompt
-        prompt = f"Human: {user_input}\nAssistant: "
+        # 构建多轮对话 prompt
+        prompt = _build_prompt(history, user_input)
 
         # 生成回复
         print("🤖 Assistant: ", end="", flush=True)
@@ -105,10 +112,30 @@ def chat_loop(
 
         # 提取 Assistant 回复部分
         if "Assistant: " in response:
-            reply = response.split("Assistant: ", 1)[-1]
+            reply = response.split("Assistant: ")[-1]
         else:
             reply = response
 
-        # 清理末尾的特殊 token
-        reply = reply.replace("</s>", "").replace("<s>", "").strip()
+        # 清理末尾的特殊 token 和后续轮次
+        reply = reply.replace("</s>", "").replace("<s>", "")
+        # 截断到第一个 "Human:" 防止模型继续生成下一轮
+        if "Human:" in reply:
+            reply = reply.split("Human:")[0]
+        reply = reply.strip()
         print(reply)
+
+        # 保存对话历史
+        history.append((user_input, reply))
+
+        # 限制历史长度
+        if len(history) > max_history:
+            history = history[-max_history:]
+
+
+def _build_prompt(history: list[tuple[str, str]], current_input: str) -> str:
+    """将对话历史和当前输入拼接为完整 prompt"""
+    prompt = ""
+    for user_msg, reply in history:
+        prompt += f"Human: {user_msg}\nAssistant: {reply}\n"
+    prompt += f"Human: {current_input}\nAssistant: "
+    return prompt

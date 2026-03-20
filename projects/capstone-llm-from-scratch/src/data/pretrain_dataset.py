@@ -36,21 +36,26 @@ class PretrainDataset(Dataset):
         data_path:   预处理后的数据文件 (.bin 或 .jsonl)
         tokenizer:   分词器实例
         max_seq_len: 最大序列长度
+        _tokens:     内部使用 — 直接传入已分词的 token 列表 (跳过文件加载)
     """
 
     def __init__(
         self,
-        data_path: str,
-        tokenizer,
+        data_path: str = None,
+        tokenizer=None,
         max_seq_len: int = 512,
+        _tokens: list[int] = None,
     ):
         super().__init__()
         self.max_seq_len = max_seq_len
         self.tokenizer = tokenizer
 
         # 加载并处理数据
-        print(f"📦 加载预训练数据: {data_path}")
-        self.data = self._load_and_tokenize(data_path)
+        if _tokens is not None:
+            self.data = _tokens
+        else:
+            print(f"📦 加载预训练数据: {data_path}")
+            self.data = self._load_and_tokenize(data_path)
 
         # 计算样本数
         # 每个样本需要 max_seq_len + 1 个 token (input + 最后一个 target)
@@ -60,6 +65,33 @@ class PretrainDataset(Dataset):
 
         print(f"  总 token 数: {len(self.data):,}")
         print(f"  样本数: {self.n_samples:,}")
+
+    @classmethod
+    def create_with_split(
+        cls,
+        data_path: str,
+        tokenizer,
+        max_seq_len: int = 512,
+        val_ratio: float = 0.1,
+    ) -> tuple["PretrainDataset", "PretrainDataset"]:
+        """创建训练集和验证集
+
+        在 token 流 concat 后按比例截取（前 90% 训练，后 10% 验证）。
+
+        Returns:
+            (train_dataset, val_dataset)
+        """
+        print(f"📦 加载预训练数据: {data_path}")
+        temp = cls(data_path=data_path, tokenizer=tokenizer, max_seq_len=1)
+        all_tokens = temp.data
+
+        split_idx = int(len(all_tokens) * (1 - val_ratio))
+
+        print(f"📊 数据划分: 训练 {split_idx:,} tokens, 验证 {len(all_tokens) - split_idx:,} tokens")
+        train_ds = cls(_tokens=all_tokens[:split_idx], tokenizer=tokenizer, max_seq_len=max_seq_len)
+        val_ds = cls(_tokens=all_tokens[split_idx:], tokenizer=tokenizer, max_seq_len=max_seq_len)
+
+        return train_ds, val_ds
 
     def _load_and_tokenize(self, data_path: str) -> list[int]:
         """加载数据文件并 tokenize
