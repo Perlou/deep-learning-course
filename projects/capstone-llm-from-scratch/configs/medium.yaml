@@ -37,6 +37,9 @@ sft:
   lr: 2.0e-5
   weight_decay: 0.01
   dtype: bfloat16
+  log_every: 50
+  patience: 3
+  use_tensorboard: false
 
 dpo:
   batch_size: 8
@@ -45,6 +48,9 @@ dpo:
   lr: 5.0e-6
   beta: 0.1
   dtype: bfloat16
+  log_every: 50
+  patience: 3
+  use_tensorboard: false
 
 generation:
   max_new_tokens: 512

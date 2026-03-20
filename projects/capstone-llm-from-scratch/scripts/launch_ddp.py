@@ -200,12 +200,20 @@ def main():
         model = GPT(model_config).to(device)
         model = wrap_model_ddp(model, device_id=local_rank)
 
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=train_cfg.get("lr", 3e-4),
-            weight_decay=train_cfg.get("weight_decay", 0.01),
-            betas=(0.9, 0.95),
-        )
+        decay_params = []
+        no_decay_params = []
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if param.ndim == 1 or "embedding" in name:
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+
+        optimizer = torch.optim.AdamW([
+            {"params": decay_params, "weight_decay": train_cfg.get("weight_decay", 0.01)},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ], lr=train_cfg.get("lr", 3e-4), betas=(0.9, 0.95))
         scheduler = CosineWarmupScheduler(
             optimizer=optimizer,
             max_lr=train_cfg.get("lr", 3e-4),

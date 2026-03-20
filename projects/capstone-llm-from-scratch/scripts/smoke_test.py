@@ -138,9 +138,96 @@ def main():
         print(f"❌ smoke test 失败: 未找到 checkpoint {final_ckpt}")
         sys.exit(1)
 
+    print(f"\n✅ 预训练阶段通过: {final_ckpt}")
+
+    # ========== SFT 阶段 ==========
+    sft_dir = out_dir / "sft"
+    sft_data = data_dir / "sft" / "sft_data.jsonl"
+
+    # 准备 SFT 数据
+    run_cmd(
+        [
+            python,
+            "scripts/prepare_data.py",
+            "--stage",
+            "sft",
+            "--scale",
+            "small",
+            "--data_dir",
+            str(data_dir),
+        ],
+        PROJECT_ROOT,
+    )
+
+    # SFT 训练 1 epoch
+    run_cmd(
+        [
+            python,
+            "scripts/train.py",
+            "--stage",
+            "sft",
+            "--config",
+            args.config,
+            "--data",
+            str(sft_data),
+            "--tokenizer",
+            str(tok_dir / "tokenizer.model"),
+            "--output_dir",
+            str(sft_dir),
+            "--resume",
+            str(final_ckpt),
+            "--epochs",
+            "1",
+            "--log_every",
+            "1",
+        ],
+        PROJECT_ROOT,
+    )
+
+    sft_ckpt = sft_dir / "final.pth"
+    if not sft_ckpt.exists():
+        print(f"❌ smoke test 失败: 未找到 SFT checkpoint {sft_ckpt}")
+        sys.exit(1)
+
+    print(f"\n✅ SFT 阶段通过: {sft_ckpt}")
+
+    # ========== 推理验证 ==========
+    print("\n▶ 推理生成验证")
+    sys.path.insert(0, str(PROJECT_ROOT))
+    import torch
+    from src.model.config import ModelConfig
+    from src.model.gpt import GPT
+    from src.inference.generate import generate_text
+    from src.data.tokenizer import ClearMindTokenizer
+    import yaml
+
+    with open(PROJECT_ROOT / args.config, "r") as f:
+        cfg = yaml.safe_load(f)
+    model_config = ModelConfig(**cfg["model"])
+    tokenizer = ClearMindTokenizer(str(tok_dir / "tokenizer.model"))
+    if tokenizer.vocab_size != model_config.vocab_size:
+        model_config.vocab_size = tokenizer.vocab_size
+
+    model = GPT(model_config)
+    ckpt = torch.load(str(sft_ckpt), map_location="cpu", weights_only=True)
+    model.load_state_dict(ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt)
+    model.eval()
+
+    output = generate_text(
+        model=model,
+        tokenizer=tokenizer,
+        prompt="你好",
+        max_new_tokens=16,
+    )
+    if not output or len(output.strip()) == 0:
+        print("❌ smoke test 失败: 推理生成输出为空")
+        sys.exit(1)
+    print(f"  生成结果: {output[:100]}")
+    print("✅ 推理验证通过")
+
     print("\n" + "=" * 60)
-    print("✅ Smoke test 通过")
-    print(f"📦 产物: {final_ckpt}")
+    print("✅ Smoke test 全部通过 (预训练 + SFT + 推理)")
+    print(f"📦 产物: {sft_ckpt}")
     print("=" * 60)
 
 

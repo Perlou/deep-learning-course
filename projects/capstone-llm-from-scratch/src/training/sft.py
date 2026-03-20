@@ -26,6 +26,7 @@ from .trainer_utils import (
     load_checkpoint,
     amp_autocast,
 )
+from .lora import apply_lora, merge_lora, lora_state_dict
 
 
 class SFTTrainer(BaseTrainer):
@@ -90,6 +91,35 @@ class SFTTrainer(BaseTrainer):
         print(f"  Validation:      {'✅' if self.val_loader else '❌ (无验证集)'}")
         print(f"  GradScaler:      {'✅' if self.scaler else '❌'}")
 
+    def _rebuild_optimizer(self):
+        """LoRA 应用后重建 optimizer（只优化可训练参数）"""
+        decay_params = []
+        no_decay_params = []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if param.ndim == 1 or "embedding" in name:
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+
+        self.optimizer = torch.optim.AdamW(
+            [
+                {"params": decay_params, "weight_decay": self.config.get("weight_decay", 0.01)},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ],
+            lr=self.lr,
+            betas=(0.9, 0.95),
+        )
+        # 重建 scheduler
+        self.scheduler = CosineWarmupScheduler(
+            optimizer=self.optimizer,
+            max_lr=self.lr,
+            min_lr=self.lr * 0.1,
+            warmup_steps=min(100, self.max_steps // 10),
+            max_steps=self.max_steps,
+        )
+
     def train(self, pretrained_path: str = None):
         """执行 SFT 训练
 
@@ -102,6 +132,15 @@ class SFTTrainer(BaseTrainer):
             print(f"✅ 已加载预训练权重: {pretrained_path}")
         else:
             print("⚠️  未加载预训练权重, 从随机初始化开始 SFT")
+
+        # 应用 LoRA (在加载预训练权重之后)
+        use_lora = self.config.get("lora", False)
+        if use_lora:
+            rank = self.config.get("lora_rank", 8)
+            alpha = self.config.get("lora_alpha", 16.0)
+            apply_lora(self.model, rank=rank, alpha=alpha)
+            # LoRA 改变了可训练参数，需要重建 optimizer
+            self._rebuild_optimizer()
 
         print(f"\n{'=' * 60}")
         print(f"🚀 开始 SFT 训练 ({self.epochs} epochs, {self.max_steps} steps)")
@@ -204,4 +243,14 @@ class SFTTrainer(BaseTrainer):
                 break
 
         # ========== 训练结束 ==========
+        use_lora = self.config.get("lora", False)
+        if use_lora:
+            # 保存 LoRA 权重
+            lora_path = os.path.join(self.output_dir, "lora_weights.pth")
+            torch.save(lora_state_dict(self.model), lora_path)
+            print(f"💾 LoRA 权重已保存: {lora_path}")
+
+            # 合并 LoRA 到原始权重后再保存 final.pth
+            merge_lora(self.model)
+
         self._finalize(step, avg_epoch_loss, "sft_log.jsonl", stopped_early)

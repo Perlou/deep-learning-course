@@ -154,6 +154,12 @@ def run_sft(args, config, model_config, tokenizer, model):
     sft_config["log_every"] = args.log_every
     sft_config["pad_token_id"] = tokenizer.pad_id
 
+    # LoRA 配置
+    if args.lora:
+        sft_config["lora"] = True
+        sft_config["lora_rank"] = args.lora_rank
+        sft_config["lora_alpha"] = args.lora_alpha
+
     # 预训练模型路径
     pretrained = args.resume or "outputs/pretrain/final.pth"
     if not os.path.exists(pretrained):
@@ -264,6 +270,15 @@ def main():
     parser.add_argument("--log_every", type=int, default=10, help="日志间隔步数")
     parser.add_argument(
         "--resume", type=str, default=None, help="续训 checkpoint / 上阶段模型路径"
+    )
+    parser.add_argument(
+        "--lora", action="store_true", help="启用 LoRA 微调"
+    )
+    parser.add_argument(
+        "--lora_rank", type=int, default=8, help="LoRA 秩 (默认 8)"
+    )
+    parser.add_argument(
+        "--lora_alpha", type=float, default=16.0, help="LoRA alpha (默认 16)"
     )
     args = parser.parse_args()
 

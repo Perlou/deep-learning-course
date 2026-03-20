@@ -182,7 +182,7 @@ if __name__ == "__main__":
     model = GPT(config)
 
     params = model.count_parameters()
-    print(f"\n📊 Small 配置:")
+    print("\n📊 Small 配置:")
     print(f"  总参数量: {params['total_millions']:.1f}M")
     print(f"  可训练参数: {params['trainable_millions']:.1f}M")
 
@@ -193,7 +193,7 @@ if __name__ == "__main__":
     targets = torch.randint(0, config.vocab_size, (batch_size, seq_len))
 
     logits, loss, _ = model(input_ids, targets)
-    print(f"\n🔄 前向传播:")
+    print("\n🔄 前向传播:")
     print(f"  Input:  {input_ids.shape}")
     print(f"  Logits: {logits.shape}")
     print(f"  Loss:   {loss.item():.4f}")
@@ -204,14 +204,14 @@ if __name__ == "__main__":
     # 生成测试
     prompt = torch.randint(0, config.vocab_size, (1, 5))
     generated = generate(model, prompt, max_new_tokens=20, temperature=0.8, top_k=50, eos_token_id=-1)
-    print(f"\n✨ 文本生成:")
+    print("\n✨ 文本生成:")
     print(f"  Prompt:    {prompt.shape}")
     print(f"  Generated: {generated.shape}")
     print(f"  新生成 tokens: {generated.shape[1] - prompt.shape[1]}")
 
     # 反向传播测试
     loss.backward()
-    print(f"\n✅ 反向传播成功!")
+    print("\n✅ 反向传播成功!")
 
     # ========== Medium 配置参数量 ==========
     config_med = ModelConfig.medium()
