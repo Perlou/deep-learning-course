@@ -1,0 +1,73 @@
+# ClearMind-Tiny 配置 (~0.6M 参数)
+# 专为 MacBook CPU 快速验证设计
+# 用途: 验证训练流程、评估管线、代码正确性
+# 训练时间: ~2-5 分钟 (MacBook CPU)
+
+model:
+  hidden_size: 128             # 隐藏层维度 (极小)
+  num_attention_heads: 4       # 注意力头数
+  num_key_value_heads: 4       # KV 头数 (= num_attention_heads, 标准 MHA)
+  num_hidden_layers: 4         # Transformer 层数
+  intermediate_size: 352       # FFN 中间维度 (≈ 2.75 × hidden_size)
+  vocab_size: 2000             # 词表大小 (适配样例数据)
+  max_position_embeddings: 128 # 最大序列长度 (短序列加速)
+  hidden_dropout_prob: 0.1     # Dropout 比率
+  rms_norm_eps: 1.0e-6         # RMSNorm epsilon
+  rope_theta: 10000.0          # RoPE base frequency
+  use_cache: true              # 是否使用 KV Cache
+  tie_word_embeddings: true    # 输入/输出 embedding 共享
+
+tokenizer:
+  model_type: bpe
+  vocab_size: 2000
+  character_coverage: 0.9995
+
+pretrain:
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2    # 有效 batch = 16
+  max_steps: 200                    # 极少步数, 只验证流程
+  learning_rate: 5.0e-4
+  lr_scheduler_type: cosine
+  weight_decay: 0.01
+  warmup_steps: 20
+  save_steps: 50
+  eval_steps: 50
+  logging_steps: 10
+  save_strategy: steps
+  eval_strategy: steps
+  bf16: false                       # MacBook CPU 使用 float32
+  report_to: none
+  gradient_checkpointing: false
+
+sft:
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
+  num_train_epochs: 2
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  logging_steps: 5
+  bf16: false
+  report_to: none
+
+dpo:
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  num_train_epochs: 1
+  learning_rate: 1.0e-5
+  beta: 0.1
+  logging_steps: 5
+  bf16: false
+  report_to: none
+
+lora:
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+generation:
+  max_new_tokens: 64
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.1

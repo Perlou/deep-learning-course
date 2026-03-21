@@ -1,0 +1,41 @@
+# 数据目录
+data/
+!data/.gitkeep
+!**/src/data/
+!**/src/data/**
+
+# 输出目录
+outputs/
+!outputs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+venv/
+.venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# HF 缓存
+.cache/
+
+# Ruff
+.ruff_cache/
+
+# TensorBoard
+runs/
