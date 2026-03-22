@@ -3,7 +3,7 @@
 > **项目:** ClearMind-HF (HuggingFace 生态版)
 > **姊妹项目:** [ClearMind (from-scratch)](../../capstone-llm-from-scratch/)
 > **开始日期:** 2026-03-21
-> **最后更新:** 2026-03-21
+> **最后更新:** 2026-03-22
 
 ---
 
@@ -13,8 +13,8 @@
 |------|------|------|
 | 1. 项目搭建与基础设施 | `████████████████████ 100%` | ✅ Complete |
 | 2. Tokenizer 训练 | `████████████████████ 100%` | ✅ Complete |
-| 3. 模型定义 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
-| 4. 数据处理 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
+| 3. 模型定义 | `████████████████████ 100%` | ✅ Complete |
+| 4. 数据处理 | `████████████████████ 100%` | ✅ Complete |
 | 5. 预训练 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
 | 6. SFT 微调 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
 | 7. DPO 对齐 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
@@ -59,29 +59,29 @@
 
 ---
 
-## 阶段 3：模型定义 🔜
+## 阶段 3：模型定义 ✅
 
 > **目标:** 实现 ClearMindConfig + ClearMindForCausalLM，注册 AutoClass
 > **from-scratch 对应:** `src/model/` 全部文件
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 3.1 | 实现 ClearMindConfig (PretrainedConfig) | 🔥 P0 | 🔜 Pending | - | 字段映射见 TECHNICAL_DESIGN.md |
-| 3.2 | 实现 ClearMindRMSNorm | 🔥 P0 | 🔜 Pending | - | from-scratch: RMSNorm |
-| 3.3 | 实现 ClearMindRotaryEmbedding (RoPE) | 🔥 P0 | 🔜 Pending | - | from-scratch: precompute_rope_frequencies |
-| 3.4 | 实现 ClearMindAttention (GQA + RoPE + KV Cache) | 🔥 P0 | 🔜 Pending | - | q_proj/k_proj/v_proj/o_proj 命名 |
-| 3.5 | 实现 ClearMindMLP (SwiGLU) | 🔥 P0 | 🔜 Pending | - | gate_proj/up_proj/down_proj 命名 |
-| 3.6 | 实现 ClearMindDecoderLayer | 🔥 P0 | 🔜 Pending | - | from-scratch: TransformerBlock |
-| 3.7 | 实现 ClearMindModel + ClearMindForCausalLM | 🔥 P0 | 🔜 Pending | - | 继承 PreTrainedModel |
-| 3.8 | 实现 prepare_inputs_for_generation() | 🔥 P0 | 🔜 Pending | - | GenerationMixin 集成 |
-| 3.9 | AutoClass 注册 (AutoConfig, AutoModelForCausalLM) | ⚡ P1 | 🔜 Pending | - | auto_register.py |
-| 3.10 | 参数量验证 (与 from-scratch 版对比) | ⚡ P1 | 🔜 Pending | - | 4 档配置全部验证 |
-| 3.11 | 编写模型单元测试 | ⚡ P1 | 🔜 Pending | - | forward/backward/KV Cache/save_pretrained |
-| 3.12 | 编写 02_model_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | nn.Module vs PreTrainedModel 对比 |
+| 3.1 | 实现 ClearMindConfig (PretrainedConfig) | 🔥 P0 | ✅ Complete | 2026-03-22 | factory methods, from_yaml, count_params |
+| 3.2 | 实现 ClearMindRMSNorm | 🔥 P0 | ✅ Complete | 2026-03-22 | x * rsqrt(mean(x²) + eps) * weight |
+| 3.3 | 实现 ClearMindRotaryEmbedding (RoPE) | 🔥 P0 | ✅ Complete | 2026-03-22 | 预计算 cos/sin buffer |
+| 3.4 | 实现 ClearMindAttention (GQA + RoPE + KV Cache) | 🔥 P0 | ✅ Complete | 2026-03-22 | q_proj/k_proj/v_proj/o_proj, DynamicCache |
+| 3.5 | 实现 ClearMindMLP (SwiGLU) | 🔥 P0 | ✅ Complete | 2026-03-22 | gate_proj/up_proj/down_proj |
+| 3.6 | 实现 ClearMindDecoderLayer | 🔥 P0 | ✅ Complete | 2026-03-22 | Pre-Norm 架构 |
+| 3.7 | 实现 ClearMindModel + ClearMindForCausalLM | 🔥 P0 | ✅ Complete | 2026-03-22 | PreTrainedModel + GenerationMixin |
+| 3.8 | 实现 prepare_inputs_for_generation() | 🔥 P0 | ✅ Complete | 2026-03-22 | 支持 DynamicCache |
+| 3.9 | AutoClass 注册 (AutoConfig, AutoModelForCausalLM) | ⚡ P1 | ✅ Complete | 2026-03-22 | auto_register.py |
+| 3.10 | 参数量验证 (与 from-scratch 版对比) | ⚡ P1 | ✅ Complete | 2026-03-22 | count_params 测试通过 |
+| 3.11 | 编写模型单元测试 | ⚡ P1 | ✅ Complete | 2026-03-22 | 20 个测试全部通过 |
+| 3.12 | 编写 02_model_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-03-22 | nn.Module vs PreTrainedModel 对比 |
 
 ---
 
-## 阶段 4：数据处理 🔜
+## 阶段 4：数据处理 ✅
 
 > **目标:** 使用 datasets 库处理预训练/SFT/DPO 数据
 > **from-scratch 对应:** `src/data/pretrain_dataset.py`, `sft_dataset.py`, `dpo_dataset.py`
@@ -89,11 +89,11 @@
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
 | 4.1 | 编写 scripts/prepare_data.py 数据下载/准备 | 🔥 P0 | ✅ Complete | 2026-03-21 | small/medium/large 三档 |
-| 4.2 | 预训练数据处理 (datasets.map + tokenizer) | 🔥 P0 | 🔜 Pending | - | 替代 PretrainDataset |
-| 4.3 | SFT 数据处理 (chat template 格式化) | 🔥 P0 | 🔜 Pending | - | apply_chat_template + Alpaca/ShareGPT |
-| 4.4 | DPO 数据处理 (prompt/chosen/rejected 格式) | 🔥 P0 | 🔜 Pending | - | DPOTrainer 标准输入格式 |
-| 4.5 | 编写数据处理单元测试 | ⚡ P1 | 🔜 Pending | - | 数据格式验证、tokenize 正确性 |
-| 4.6 | 编写 03_data_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | 手写 Dataset vs datasets 库对比 |
+| 4.2 | 预训练数据处理 (datasets.map + tokenizer) | 🔥 P0 | ✅ Complete | 2026-03-22 | load_pretrain_dataset + DataCollator |
+| 4.3 | SFT 数据处理 (chat template 格式化) | 🔥 P0 | ✅ Complete | 2026-03-22 | apply_chat_template + labels mask |
+| 4.4 | DPO 数据处理 (prompt/chosen/rejected 格式) | 🔥 P0 | ✅ Complete | 2026-03-22 | 字符串格式, DPOTrainer 内部处理 |
+| 4.5 | 编写数据处理单元测试 | ⚡ P1 | ✅ Complete | 2026-03-22 | 15 个测试全部通过 |
+| 4.6 | 编写 03_data_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-03-22 | 手写 Dataset vs datasets 库对比 |
 
 ---
 
@@ -222,9 +222,9 @@
 | 指标 | 数量 |
 |------|------|
 | 总任务数 | 58 |
-| ✅ 已完成 | 15 |
-| 🔜 待开始 | 43 |
-| 完成率 | 26% |
+| ✅ 已完成 | 32 |
+| 🔜 待开始 | 26 |
+| 完成率 | 55% |
 
 **按优先级分布：**
 
@@ -257,3 +257,20 @@
 - ✅ 阶段 1 完成：项目搭建与基础设施 (目录结构、配置文件、run.sh、.gitignore、requirements.txt)
 - ✅ 阶段 2 完成：Tokenizer 训练 (ByteLevelBPE, PreTrainedTokenizerFast, chat template, 20 个测试通过)
 - ✅ scripts/prepare_data.py 数据准备脚本 (small/medium/large 三档)
+
+### 2026-03-22
+
+- ✅ 阶段 3 完成：模型定义
+  - ClearMindConfig (PretrainedConfig 子类, factory methods, from_yaml, count_params)
+  - ClearMindRMSNorm, ClearMindRotaryEmbedding, ClearMindAttention (GQA + KV Cache)
+  - ClearMindMLP (SwiGLU), ClearMindDecoderLayer (Pre-Norm)
+  - ClearMindModel + ClearMindForCausalLM (PreTrainedModel + GenerationMixin)
+  - AutoClass 注册 (AutoConfig, AutoModelForCausalLM)
+  - 20 个测试全部通过 (config 10 + model 10)
+  - 02_model_comparison.ipynb 对比 notebook
+- ✅ 阶段 4 完成：数据处理
+  - load_pretrain_dataset: datasets.map + DataCollatorForLanguageModeling
+  - load_sft_dataset: apply_chat_template + labels mask (-100)
+  - load_dpo_dataset: 字符串格式, DPOTrainer 内部处理
+  - 15 个测试全部通过 (pretrain 5 + sft 5 + dpo 5)
+  - 03_data_comparison.ipynb 对比 notebook
