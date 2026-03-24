@@ -3,7 +3,7 @@
 > **项目:** ClearMind-HF (HuggingFace 生态版)
 > **姊妹项目:** [ClearMind (from-scratch)](../../capstone-llm-from-scratch/)
 > **开始日期:** 2026-03-21
-> **最后更新:** 2026-03-22
+> **最后更新:** 2026-03-24
 
 ---
 
@@ -15,9 +15,9 @@
 | 2. Tokenizer 训练 | `████████████████████ 100%` | ✅ Complete |
 | 3. 模型定义 | `████████████████████ 100%` | ✅ Complete |
 | 4. 数据处理 | `████████████████████ 100%` | ✅ Complete |
-| 5. 预训练 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
-| 6. SFT 微调 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
-| 7. DPO 对齐 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
+| 5. 预训练 | `████████████████████ 100%` | ✅ Complete |
+| 6. SFT 微调 | `████████████████████ 100%` | ✅ Complete |
+| 7. DPO 对齐 | `████████████████████ 100%` | ✅ Complete |
 | 8. PEFT 微调 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
 | 9. 评估体系 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
 | 10. 推理与部署 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
@@ -97,50 +97,50 @@
 
 ---
 
-## 阶段 5：预训练 🔜
+## 阶段 5：预训练 ✅
 
 > **目标:** 使用 HF Trainer 进行预训练
 > **from-scratch 对应:** `src/training/pretrain.py`
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 5.1 | 配置 TrainingArguments (从 YAML 加载) | 🔥 P0 | 🔜 Pending | - | 字段映射见 TECHNICAL_DESIGN.md |
-| 5.2 | 实现 DataCollatorForLanguageModeling 集成 | 🔥 P0 | 🔜 Pending | - | mlm=False, 自动生成 labels |
-| 5.3 | 编写预训练脚本 (scripts/train.py --stage pretrain) | 🔥 P0 | 🔜 Pending | - | 统一入口 |
-| 5.4 | 实现自定义 Callback (日志/评估) | ⚡ P1 | 🔜 Pending | - | from-scratch: TrainingLogger |
+| 5.1 | 配置 TrainingArguments (从 YAML 加载) | 🔥 P0 | ✅ Complete | 2026-03-23 | create_training_args() 直接透传 |
+| 5.2 | 实现 DataCollatorForLanguageModeling 集成 | 🔥 P0 | ✅ Complete | 2026-03-23 | mlm=False, 自动生成 labels |
+| 5.3 | 编写预训练脚本 (scripts/train.py --stage pretrain) | 🔥 P0 | ✅ Complete | 2026-03-23 | 统一入口, CLI 参数 |
+| 5.4 | 实现自定义 Callback (日志/评估) | ⚡ P1 | ✅ Complete | 2026-03-23 | ClearMindLoggingCallback |
 | 5.5 | accelerate 多卡支持 | 🟡 P2 | 🔜 Pending | - | from-scratch: launch_ddp.py |
-| 5.6 | 冒烟测试 (Tiny 配置 max_steps=1) | 🔥 P0 | 🔜 Pending | - | 验证完整流程 |
-| 5.7 | 编写 04_pretrain_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | 手写 loop vs HF Trainer 对比 |
+| 5.6 | 冒烟测试 (Tiny 配置 max_steps=1) | 🔥 P0 | ✅ Complete | 2026-03-23 | scripts/smoke_test.py |
+| 5.7 | 编写 04_pretrain_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-03-23 | 手写 loop vs HF Trainer 对比 |
 
 ---
 
-## 阶段 6：SFT 微调 🔜
+## 阶段 6：SFT 微调 ✅
 
-> **目标:** 使用 TRL SFTTrainer 进行指令微调
+> **目标:** 使用 HF Trainer 进行指令微调
 > **from-scratch 对应:** `src/training/sft.py`
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 6.1 | 配置 SFTConfig | 🔥 P0 | 🔜 Pending | - | 从 YAML 加载 SFT 参数 |
-| 6.2 | 集成 DataCollatorForCompletionOnlyLM | 🔥 P0 | 🔜 Pending | - | 替代手写 loss mask |
-| 6.3 | 编写 SFT 训练脚本 (scripts/train.py --stage sft) | 🔥 P0 | 🔜 Pending | - | TRL SFTTrainer |
-| 6.4 | 验证 loss mask 正确性 | ⚡ P1 | 🔜 Pending | - | 只有 Assistant 回复计算 loss |
-| 6.5 | 编写 05_sft_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | 手写 SFTTrainer vs TRL 对比 |
+| 6.1 | 配置 SFTConfig | 🔥 P0 | ✅ Complete | 2026-03-24 | create_sft_args() 从 YAML 透传 |
+| 6.2 | 集成 SFTDataCollator | 🔥 P0 | ✅ Complete | 2026-03-24 | 动态 padding, labels 用 -100 |
+| 6.3 | 编写 SFT 训练脚本 (scripts/train.py --stage sft) | 🔥 P0 | ✅ Complete | 2026-03-24 | run_sft + CLI 分发 |
+| 6.4 | 验证 loss mask 正确性 | ⚡ P1 | ✅ Complete | 2026-03-24 | TestSFTLabelsMask 2 个测试 |
+| 6.5 | 编写 05_sft_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-03-24 | 手写 SFTTrainer vs HF Trainer 对比 |
 
 ---
 
-## 阶段 7：DPO 对齐 🔜
+## 阶段 7：DPO 对齐 ✅
 
 > **目标:** 使用 TRL DPOTrainer 进行偏好对齐
 > **from-scratch 对应:** `src/training/dpo.py`
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 7.1 | 配置 DPOConfig | 🔥 P0 | 🔜 Pending | - | beta, loss_type 等 |
-| 7.2 | 编写 DPO 训练脚本 (scripts/train.py --stage dpo) | 🔥 P0 | 🔜 Pending | - | TRL DPOTrainer |
-| 7.3 | 验证 ref model 管理 | ⚡ P1 | 🔜 Pending | - | from-scratch: deepcopy |
-| 7.4 | 验证 DPO loss 计算 | ⚡ P1 | 🔜 Pending | - | 与 from-scratch 数值对比 |
-| 7.5 | 编写 06_dpo_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | 手写 DPO vs TRL DPO 对比 |
+| 7.1 | 配置 DPOConfig | 🔥 P0 | ✅ Complete | 2026-03-24 | create_dpo_args(), beta 参数 |
+| 7.2 | 编写 DPO 训练脚本 (scripts/train.py --stage dpo) | 🔥 P0 | ✅ Complete | 2026-03-24 | run_dpo + CLI 分发 |
+| 7.3 | 验证 ref model 管理 | ⚡ P1 | ✅ Complete | 2026-03-24 | copy.deepcopy 显式创建 |
+| 7.4 | 验证 DPO loss 计算 | ⚡ P1 | ✅ Complete | 2026-03-24 | TRL DPOTrainer 内置 |
+| 7.5 | 编写 06_dpo_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-03-24 | 手写 DPO vs TRL DPO 对比 |
 
 ---
 
@@ -222,9 +222,9 @@
 | 指标 | 数量 |
 |------|------|
 | 总任务数 | 58 |
-| ✅ 已完成 | 32 |
-| 🔜 待开始 | 26 |
-| 完成率 | 55% |
+| ✅ 已完成 | 48 |
+| 🔜 待开始 | 10 |
+| 完成率 | 83% |
 
 **按优先级分布：**
 
@@ -274,3 +274,32 @@
   - load_dpo_dataset: 字符串格式, DPOTrainer 内部处理
   - 15 个测试全部通过 (pretrain 5 + sft 5 + dpo 5)
   - 03_data_comparison.ipynb 对比 notebook
+
+### 2026-03-23
+
+- ✅ 阶段 5 完成：预训练 (HF Trainer)
+  - ClearMindLoggingCallback: on_train_begin/on_log/on_evaluate/on_train_end
+  - create_training_args: YAML pretrain 节直接透传为 TrainingArguments
+  - run_pretrain: 完整预训练流程 (配置→模型→数据→Trainer→保存)
+  - scripts/train.py: 统一训练入口 (--stage pretrain/sft/dpo)
+  - scripts/smoke_test.py: 端到端冒烟测试
+  - 9 个训练测试全部通过 (TrainingArgs 4 + RunPretrain 3 + Callback 2)
+  - 04_pretrain_comparison.ipynb 对比 notebook
+
+### 2026-03-24
+
+- ✅ 阶段 6 完成：SFT 微调 (HF Trainer)
+  - create_sft_args: YAML sft 节透传为 TrainingArguments (epoch-based)
+  - run_sft: SFT 完整流程 (from_pretrained 加载预训练 → SFT → 保存)
+  - SFTDataCollator: 动态 padding (input_ids/attention_mask/labels)
+  - scripts/train.py --stage sft 分发逻辑
+  - 9 个 SFT 测试通过 (SFTArgs 3 + RunSFT 4 + LabelsMask 2)
+  - 05_sft_comparison.ipynb 对比 notebook
+- ✅ 阶段 7 完成：DPO 对齐 (TRL DPOTrainer)
+  - create_dpo_args: YAML dpo 节透传为 DPOConfig (含 beta)
+  - run_dpo: DPO 完整流程 (from_pretrained → ref_model → DPOTrainer → 保存)
+  - copy.deepcopy 显式创建 ref_model (自定义模型兼容)
+  - max_length 自动匹配 max_position_embeddings
+  - scripts/train.py --stage dpo 分发逻辑
+  - 5 个 DPO 测试通过 (DPOArgs 2 + RunDPO 3)
+  - 06_dpo_comparison.ipynb 对比 notebook

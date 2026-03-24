@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 import pytest
+import yaml
 
 # 将 src/ 加入 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -176,3 +177,89 @@ def sample_dpo_data(tmp_path):
         for s in samples:
             f.write(json.dumps(s, ensure_ascii=False) + "\n")
     return str(data_path)
+
+
+# ============================================================
+# 训练相关 fixtures
+# ============================================================
+
+@pytest.fixture(scope="session")
+def saved_tmp_tokenizer(tmp_tokenizer, tmp_path_factory):
+    """将 tmp_tokenizer 保存到临时目录并返回路径
+
+    用于需要 tokenizer 路径（而非对象）的测试场景。
+    """
+    save_dir = tmp_path_factory.mktemp("saved_tokenizer")
+    tmp_tokenizer.save_pretrained(str(save_dir))
+    return str(save_dir)
+
+
+@pytest.fixture(scope="session")
+def tiny_yaml_config(tmp_path_factory, saved_tmp_tokenizer):
+    """创建临时 YAML 配置文件
+
+    vocab_size 匹配 tmp_tokenizer 的实际大小，
+    max_steps=2 用于快速测试。
+    """
+    from data.tokenizer import ClearMindTokenizer
+
+    tokenizer = ClearMindTokenizer.load(saved_tmp_tokenizer)
+    vocab_size = tokenizer.vocab_size
+
+    config = {
+        "model": {
+            "hidden_size": 64,
+            "num_attention_heads": 2,
+            "num_key_value_heads": 2,
+            "num_hidden_layers": 2,
+            "intermediate_size": 176,
+            "vocab_size": vocab_size,
+            "max_position_embeddings": 64,
+            "hidden_dropout_prob": 0.0,
+            "rms_norm_eps": 1e-6,
+            "rope_theta": 10000.0,
+            "use_cache": True,
+            "tie_word_embeddings": True,
+        },
+        "pretrain": {
+            "per_device_train_batch_size": 2,
+            "gradient_accumulation_steps": 1,
+            "max_steps": 2,
+            "learning_rate": 5e-4,
+            "lr_scheduler_type": "cosine",
+            "weight_decay": 0.01,
+            "warmup_steps": 1,
+            "logging_steps": 1,
+            "save_strategy": "no",
+            "eval_strategy": "no",
+            "bf16": False,
+            "report_to": "none",
+            "gradient_checkpointing": False,
+        },
+        "sft": {
+            "per_device_train_batch_size": 2,
+            "gradient_accumulation_steps": 1,
+            "num_train_epochs": 1,
+            "learning_rate": 2e-5,
+            "weight_decay": 0.01,
+            "logging_steps": 1,
+            "bf16": False,
+            "report_to": "none",
+        },
+        "dpo": {
+            "per_device_train_batch_size": 2,
+            "gradient_accumulation_steps": 1,
+            "num_train_epochs": 1,
+            "learning_rate": 1e-5,
+            "beta": 0.1,
+            "logging_steps": 1,
+            "bf16": False,
+            "report_to": "none",
+        },
+    }
+
+    config_dir = tmp_path_factory.mktemp("config")
+    config_path = config_dir / "tiny_test.yaml"
+    with open(config_path, "w") as f:
+        yaml.dump(config, f)
+    return str(config_path)
