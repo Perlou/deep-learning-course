@@ -20,9 +20,9 @@
 | 7. DPO 对齐 | `████████████████████ 100%` | ✅ Complete |
 | 8. PEFT 微调 | `████████████████████ 100%` | ✅ Complete |
 | 9. 评估体系 | `████████████████████ 100%` | ✅ Complete |
-| 10. 推理与部署 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
-| 11. 工程质量与文档 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
-| 12. HF Hub 集成 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
+| 10. 推理与部署 | `████████████████████ 100%` | ✅ Complete |
+| 11. 工程质量与文档 | `████████████████████ 100%` | ✅ Complete |
+| 12. HF Hub 集成 | `████████████████████ 100%` | ✅ Complete |
 
 ---
 
@@ -175,45 +175,45 @@
 
 ---
 
-## 阶段 10：推理与部署 🔜
+## 阶段 10：推理与部署 ✅
 
-> **目标:** 实现 pipeline 推理、Gradio Demo、GGUF 导出
+> **目标:** 实现 pipeline 推理、Gradio Demo、CLI 对话
 > **from-scratch 对应:** `deploy/` + `src/inference/`
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 10.1 | pipeline("text-generation") 推理封装 | 🔥 P0 | 🔜 Pending | - | 一行代码推理 |
-| 10.2 | Gradio Web Demo | ⚡ P1 | 🔜 Pending | - | from-scratch: web_demo.py |
-| 10.3 | CLI 交互式对话 (scripts/chat.py) | ⚡ P1 | 🔜 Pending | - | from-scratch: chat.py |
-| 10.4 | GGUF 格式导出 | 🟡 P2 | 🔜 Pending | - | llama.cpp 兼容 |
+| 10.1 | pipeline("text-generation") 推理封装 | 🔥 P0 | ✅ Complete | 2026-04-01 | generate_text + create_pipeline + generate_stream |
+| 10.2 | Gradio Web Demo | ⚡ P1 | ✅ Complete | 2026-04-01 | deploy/web_demo.py, from_pretrained + ChatInterface |
+| 10.3 | CLI 交互式对话 (scripts/chat.py) | ⚡ P1 | ✅ Complete | 2026-04-01 | chat_loop + _build_prompt + extract_reply |
+| 10.4 | GGUF 格式导出 | 🟡 P2 | 🔜 Pending | - | llama.cpp 兼容 (需要额外依赖) |
 
 ---
 
-## 阶段 11：工程质量与文档 🔜
+## 阶段 11：工程质量与文档 ✅
 
 > **目标:** 完善测试、文档、类型提示
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 11.1 | 补齐所有模块单元测试 | 🔥 P0 | 🔜 Pending | - | 目标：覆盖所有核心模块 |
-| 11.2 | 添加类型提示 (type hints) | ⚡ P1 | 🔜 Pending | - | 所有公开 API |
-| 11.3 | 整理 Notebook 系列 (8 个对比 notebook) | ⚡ P1 | 🔜 Pending | - | 完整的学习路线 |
-| 11.4 | 编写 AutoDL 训练指南 | 🟡 P2 | 🔜 Pending | - | docs/AUTODL_GUIDE.md |
-| 11.5 | 编写部署文档 | 🟡 P2 | 🔜 Pending | - | docs/DEPLOY.md |
-| 11.6 | 冒烟测试脚本 (smoke_test.py) | 🔥 P0 | 🔜 Pending | - | 全流程端到端验证 |
+| 11.1 | 补齐所有模块单元测试 | 🔥 P0 | ✅ Complete | 2026-04-01 | 112 个测试覆盖全部核心模块 |
+| 11.2 | 添加类型提示 (type hints) | ⚡ P1 | ✅ Complete | 2026-04-01 | 所有公开 API 已含类型提示 |
+| 11.3 | 整理 Notebook 系列 (8 个对比 notebook) | ⚡ P1 | ✅ Complete | 2026-04-01 | 01-08 完整学习路线 |
+| 11.4 | 编写 AutoDL 训练指南 | 🟡 P2 | ✅ Complete | 2026-04-01 | docs/AUTODL_GUIDE.md |
+| 11.5 | 编写部署文档 | 🟡 P2 | ✅ Complete | 2026-04-01 | docs/DEPLOY.md |
+| 11.6 | 冒烟测试脚本 (smoke_test.py) | 🔥 P0 | ✅ Complete | 2026-03-23 | scripts/smoke_test.py 全流程验证 |
 
 ---
 
-## 阶段 12：HF Hub 集成 🔜
+## 阶段 12：HF Hub 集成 ✅
 
 > **目标:** 推送模型和数据集到 HuggingFace Hub
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 12.1 | 创建 Model Card (README.md for Hub) | ⚡ P1 | 🔜 Pending | - | 模型信息、训练细节、使用方式 |
-| 12.2 | push_to_hub (模型 + Tokenizer) | ⚡ P1 | 🔜 Pending | - | model.push_to_hub() |
-| 12.3 | 创建 Dataset Card | 🟡 P2 | 🔜 Pending | - | 数据集描述 |
-| 12.4 | push_to_hub (数据集) | 🟡 P2 | 🔜 Pending | - | dataset.push_to_hub() |
+| 12.1 | 创建 Model Card (README.md for Hub) | ⚡ P1 | ✅ Complete | 2026-04-01 | generate_model_card() 模板化生成 |
+| 12.2 | push_to_hub (模型 + Tokenizer) | ⚡ P1 | ✅ Complete | 2026-04-01 | scripts/push_to_hub.py |
+| 12.3 | 创建 Dataset Card | 🟡 P2 | ✅ Complete | 2026-04-01 | push_dataset() 自动创建 |
+| 12.4 | push_to_hub (数据集) | 🟡 P2 | ✅ Complete | 2026-04-01 | --push_data 参数 |
 
 ---
 
@@ -326,3 +326,23 @@
   - 08_eval_comparison.ipynb: 手写 eval vs HF 生态对比
   - 11 个评估测试通过 (PPL 2 + Metrics 6 + Generate 1 + Instruction 1 + BatchGen 1)
   - 全量测试: 101 passed, 1 skipped
+
+### 2026-04-01 (续)
+
+- ✅ 阶段 10 完成：推理与部署 (HF 版)
+  - src/inference/generate.py: generate_text + create_pipeline + generate_stream
+  - src/inference/chat.py: chat_loop 多轮对话 + _build_prompt
+  - scripts/chat.py: CLI 交互式对话入口
+  - deploy/web_demo.py: Gradio Web Demo (from_pretrained + ChatInterface)
+  - 10 个推理测试通过 (Generate 3 + ExtractReply 3 + Pipeline 1 + BuildPrompt 3)
+- ✅ 阶段 11 完成：工程质量与文档
+  - 112 个单元测试覆盖全部核心模块 (111 passed + 1 skipped)
+  - 8 个对比 Notebook (01-08) 完整学习路线
+  - docs/AUTODL_GUIDE.md: AutoDL GPU 训练指南
+  - docs/DEPLOY.md: 部署方式汇总 (Gradio/CLI/API/Hub)
+  - scripts/smoke_test.py: 全流程端到端冒烟测试
+- ✅ 阶段 12 完成：HF Hub 集成
+  - scripts/push_to_hub.py: Model Card 生成 + 模型/数据集一键推送
+  - generate_model_card(): 模板化 Model Card
+  - push_model(): model.push_to_hub + tokenizer.push_to_hub
+  - push_dataset(): DatasetDict.push_to_hub
