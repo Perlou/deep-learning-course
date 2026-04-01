@@ -126,6 +126,7 @@ def main():
             output_dir=args.output_dir,
             pretrained_path=args.resume,
             max_steps=args.max_steps,
+            use_lora=args.use_lora,
         )
     elif args.stage == "dpo":
         from training.dpo import run_dpo

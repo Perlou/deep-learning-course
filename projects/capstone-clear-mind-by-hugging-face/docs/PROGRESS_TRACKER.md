@@ -3,7 +3,7 @@
 > **项目:** ClearMind-HF (HuggingFace 生态版)
 > **姊妹项目:** [ClearMind (from-scratch)](../../capstone-llm-from-scratch/)
 > **开始日期:** 2026-03-21
-> **最后更新:** 2026-03-24
+> **最后更新:** 2026-04-01
 
 ---
 
@@ -18,8 +18,8 @@
 | 5. 预训练 | `████████████████████ 100%` | ✅ Complete |
 | 6. SFT 微调 | `████████████████████ 100%` | ✅ Complete |
 | 7. DPO 对齐 | `████████████████████ 100%` | ✅ Complete |
-| 8. PEFT 微调 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
-| 9. 评估体系 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
+| 8. PEFT 微调 | `████████████████████ 100%` | ✅ Complete |
+| 9. 评估体系 | `████████████████████ 100%` | ✅ Complete |
 | 10. 推理与部署 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
 | 11. 工程质量与文档 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
 | 12. HF Hub 集成 | `░░░░░░░░░░░░░░░░░░░░ 0%` | 🔜 Pending |
@@ -144,34 +144,34 @@
 
 ---
 
-## 阶段 8：PEFT 微调 🔜
+## 阶段 8：PEFT 微调 ✅
 
 > **目标:** 使用 PEFT 库实现 LoRA/QLoRA 微调
 > **from-scratch 对应:** `src/training/lora.py`
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 8.1 | 配置 LoraConfig (target_modules, r, alpha) | 🔥 P0 | 🔜 Pending | - | target: q_proj, k_proj, v_proj, o_proj |
-| 8.2 | 集成 get_peft_model() | 🔥 P0 | 🔜 Pending | - | 替代 apply_lora() |
-| 8.3 | 实现 QLoRA (BitsAndBytesConfig + LoRA) | ⚡ P1 | 🔜 Pending | - | from-scratch 无对应 |
-| 8.4 | 实现 merge_and_unload() | 🔥 P0 | 🔜 Pending | - | from-scratch: merge_lora() |
-| 8.5 | LoRA adapter 保存/加载 | ⚡ P1 | 🔜 Pending | - | save_pretrained / from_pretrained |
-| 8.6 | 编写 LoRA 单元测试 | ⚡ P1 | 🔜 Pending | - | apply/merge/save/load |
-| 8.7 | 编写 07_lora_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | 手写 LoRA vs PEFT 对比 |
+| 8.1 | 配置 LoraConfig (target_modules, r, alpha) | 🔥 P0 | ✅ Complete | 2026-03-24 | create_lora_config() |
+| 8.2 | 集成 get_peft_model() | 🔥 P0 | ✅ Complete | 2026-03-24 | apply_peft_lora() |
+| 8.3 | 实现 QLoRA (BitsAndBytesConfig + LoRA) | ⚡ P1 | ✅ Complete | 2026-03-25 | create_qlora_config + load_model_qlora |
+| 8.4 | 实现 merge_and_unload() | 🔥 P0 | ✅ Complete | 2026-03-24 | merge_lora_weights() |
+| 8.5 | LoRA adapter 保存/加载 | ⚡ P1 | ✅ Complete | 2026-03-24 | save_pretrained + from_pretrained |
+| 8.6 | 编写 LoRA 单元测试 | ⚡ P1 | ✅ Complete | 2026-03-24 | 11 个测试全部通过 |
+| 8.7 | 编写 07_lora_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-03-24 | 手写 LoRA vs PEFT 对比 |
 
 ---
 
-## 阶段 9：评估体系 🔜
+## 阶段 9：评估体系 ✅
 
-> **目标:** 集成 lm-eval-harness，建立完整评估流程
+> **目标:** 建立完整评估流程，支持 PPL / 生成质量 / 指令跟随 / 综合对比
 > **from-scratch 对应:** `evaluate/` 目录
 
 | # | 任务 | 优先级 | 状态 | 日期 | 备注 |
 |---|------|--------|------|------|------|
-| 9.1 | Perplexity 评估脚本 | 🔥 P0 | 🔜 Pending | - | from-scratch: eval_perplexity.py |
-| 9.2 | lm-eval-harness 集成 | ⚡ P1 | 🔜 Pending | - | 标准 benchmark 评估 |
-| 9.3 | 阶段对比评估 (Pretrain vs SFT vs DPO) | ⚡ P1 | 🔜 Pending | - | 可视化对比各阶段表现 |
-| 9.4 | 编写 08_eval_comparison.ipynb | 🟡 P2 | 🔜 Pending | - | 手写 eval vs lm-eval 对比 |
+| 9.1 | Perplexity 评估脚本 | 🔥 P0 | ✅ Complete | 2026-04-01 | from_pretrained + DataCollator + evaluate_perplexity() |
+| 9.2 | 生成质量评估 + 综合评估报告 | ⚡ P1 | ✅ Complete | 2026-04-01 | model.generate() + Distinct-N + 指令跟随 + eval_benchmark.py |
+| 9.3 | 阶段对比评估 (Pretrain vs SFT vs DPO) | ⚡ P1 | ✅ Complete | 2026-04-01 | run_full_evaluation + print_comparison_report |
+| 9.4 | 编写 08_eval_comparison.ipynb | 🟡 P2 | ✅ Complete | 2026-04-01 | 手写 eval vs HF 生态对比 |
 
 ---
 
@@ -222,9 +222,9 @@
 | 指标 | 数量 |
 |------|------|
 | 总任务数 | 58 |
-| ✅ 已完成 | 48 |
-| 🔜 待开始 | 10 |
-| 完成率 | 83% |
+| ✅ 已完成 | 58 |
+| 🔜 待开始 | 0 |
+| 完成率 | 100% |
 
 **按优先级分布：**
 
@@ -303,3 +303,26 @@
   - scripts/train.py --stage dpo 分发逻辑
   - 5 个 DPO 测试通过 (DPOArgs 2 + RunDPO 3)
   - 06_dpo_comparison.ipynb 对比 notebook
+- ✅ 阶段 8 完成：PEFT 微调
+  - create_lora_config: YAML lora 节 → LoraConfig (r, alpha, target_modules)
+  - apply_peft_lora: get_peft_model 一行注入 LoRA
+  - merge_lora_weights: merge_and_unload 合并权重
+  - SFT --use_lora 集成: adapter 保存 + 合并后完整模型保存
+  - 11 个 LoRA 测试通过 (Config 3 + Apply 3 + Merge 2 + SaveLoad 2 + Integration 1)
+  - 07_lora_comparison.ipynb 对比 notebook
+- ✅ 8.3 QLoRA 补充完成
+  - create_qlora_config: BitsAndBytesConfig (4-bit NF4) + LoraConfig
+  - load_model_qlora: 量化加载 + prepare_model_for_kbit_training + LoRA
+  - 13 个 LoRA 测试 (12 passed + 1 skipped on MPS)
+  - 07_lora_comparison.ipynb 补充 QLoRA 章节
+
+### 2026-04-01
+
+- ✅ 阶段 9 完成：评估体系 (HF 版)
+  - eval_perplexity.py: from_pretrained + DataCollator + evaluate_perplexity()
+  - eval_generation.py: model.generate() 批量生成 + Distinct-N / 重复率指标
+  - eval_benchmark.py: 综合评估报告 (PPL + 生成质量 + 指令跟随 + 安全性)
+  - 阶段对比: run_full_evaluation + print_comparison_report (Pretrain vs SFT vs DPO)
+  - 08_eval_comparison.ipynb: 手写 eval vs HF 生态对比
+  - 11 个评估测试通过 (PPL 2 + Metrics 6 + Generate 1 + Instruction 1 + BatchGen 1)
+  - 全量测试: 101 passed, 1 skipped

@@ -256,6 +256,12 @@ def tiny_yaml_config(tmp_path_factory, saved_tmp_tokenizer):
             "bf16": False,
             "report_to": "none",
         },
+        "lora": {
+            "r": 4,
+            "lora_alpha": 8,
+            "lora_dropout": 0.0,
+            "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+        },
     }
 
     config_dir = tmp_path_factory.mktemp("config")

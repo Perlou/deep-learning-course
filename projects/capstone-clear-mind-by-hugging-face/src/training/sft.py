@@ -106,6 +106,7 @@ def run_sft(
     pretrained_path: str | None = None,
     num_train_epochs: int | None = None,
     max_steps: int | None = None,
+    use_lora: bool = False,
 ) -> None:
     """执行 SFT 指令微调
 
@@ -113,9 +114,10 @@ def run_sft(
 
     SFT 流程:
       1. 加载预训练模型 (from_pretrained 或随机初始化)
-      2. 加载 SFT 数据 (load_sft_dataset, labels 已含 -100 mask)
-      3. 用 HF Trainer 训练
-      4. 保存微调后的模型
+      2. 可选: 应用 LoRA (use_lora=True)
+      3. 加载 SFT 数据 (load_sft_dataset, labels 已含 -100 mask)
+      4. 用 HF Trainer 训练
+      5. 保存微调后的模型
 
     Args:
         config_path:       YAML 配置文件路径
@@ -125,6 +127,7 @@ def run_sft(
         pretrained_path:   预训练模型路径 (HF 格式目录, 可选)
         num_train_epochs:  覆盖 config 中的 epoch 数 (可选)
         max_steps:         覆盖为 step-based 训练 (可选, 用于测试)
+        use_lora:          是否使用 LoRA 微调
     """
     # 1. 加载 YAML 配置
     with open(config_path, "r") as f:
@@ -148,6 +151,13 @@ def run_sft(
 
     num_params = sum(p.numel() for p in model.parameters())
     print(f"\n模型参数量: {num_params:,}")
+
+    # 3.5 可选: 应用 LoRA
+    if use_lora:
+        from training.lora import create_lora_config, apply_peft_lora
+        lora_config_dict = raw_config.get("lora", {})
+        lora_config = create_lora_config(lora_config_dict)
+        model = apply_peft_lora(model, lora_config)
 
     # 4. 加载 SFT 数据 — labels 已含 -100 mask (prompt 部分)
     max_length = model.config.max_position_embeddings
@@ -182,6 +192,16 @@ def run_sft(
     trainer.train()
 
     # 9. 保存最终模型
-    trainer.save_model(output_dir)
+    if use_lora:
+        # 保存 LoRA adapter
+        adapter_dir = output_dir + "_lora_adapter"
+        trainer.model.save_pretrained(adapter_dir)
+        print(f"LoRA adapter 已保存到: {adapter_dir}")
+        # 合并 LoRA 并保存完整模型
+        from training.lora import merge_lora_weights
+        merged_model = merge_lora_weights(trainer.model)
+        merged_model.save_pretrained(output_dir)
+    else:
+        trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
     print(f"\nSFT 模型已保存到: {output_dir}")
