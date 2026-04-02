@@ -63,6 +63,11 @@ def generate_text(
     # Tokenize
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
+    # 确保 prompt + 生成长度不超过 max_position_embeddings
+    max_pos = getattr(model.config, "max_position_embeddings", 512)
+    prompt_len = inputs["input_ids"].shape[1]
+    max_new_tokens = min(max_new_tokens, max(1, max_pos - prompt_len))
+
     # model.generate(): 一行替代 from-scratch ~100 行手写循环
     output_ids = model.generate(
         **inputs,

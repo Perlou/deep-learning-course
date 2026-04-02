@@ -89,7 +89,7 @@ case $FLOW in
         run_step "预训练"            "python scripts/train.py --stage pretrain --config $CONFIG"
         run_step "SFT 指令微调"      "python scripts/train.py --stage sft --config $CONFIG"
         run_step "DPO 偏好对齐"      "python scripts/train.py --stage dpo --config $CONFIG"
-        run_step "启动对话"          "python scripts/chat.py --config $CONFIG"
+        run_step "启动对话"          "python scripts/chat.py --model outputs/dpo --tokenizer outputs/tokenizer"
         ;;
     2)  # 仅预训练
         run_step "准备数据"          "python scripts/prepare_data.py"
@@ -103,7 +103,7 @@ case $FLOW in
         run_step "DPO 偏好对齐"      "python scripts/train.py --stage dpo --config $CONFIG"
         ;;
     5)  # 仅对话
-        run_step "启动对话"          "python scripts/chat.py --config $CONFIG"
+        run_step "启动对话"          "python scripts/chat.py --model outputs/dpo --tokenizer outputs/tokenizer"
         ;;
     6)  # 仅训练分词器
         run_step "准备数据"          "python scripts/prepare_data.py"
