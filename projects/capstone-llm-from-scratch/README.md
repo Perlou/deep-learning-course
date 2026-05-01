@@ -8,12 +8,12 @@
 
 ## 🎯 发布矩阵
 
-| 模型 | 参数量 | 对标 | 训练时长(A100 80GB) | Config |
-|---|---|---|---|---|
-| **ClearMind-Base** | **68.8M** dense | minimind-3 (64M dense) | ~12-18h | `configs/main.yaml` |
-| **ClearMind-Plus** | **486.3M** dense | minimind-3-moe (198M-A64M) | ~30-40h | `configs/plus.yaml` |
+| 模型 | 参数量 | 对标 | 推荐显卡 | 训练时长 | 总成本 | Config |
+|---|---|---|---|---|---|---|
+| **ClearMind-Base** | **68.8M** dense | minimind-3 (64M dense) | RTX 4090 24G | ~28-32h | **¥65-80** | `configs/main.yaml` |
+| **ClearMind-Plus** | **486.3M** dense | minimind-3-moe (198M-A64M) | A100-PCIE 40G | ~45-55h | **¥155-200** | `configs/plus.yaml` |
 
-两个模型共享同一份训练代码、tokenizer、数据，仅 yaml 规格不同。
+两个模型共享同一份训练代码、tokenizer、数据，仅 yaml 规格不同。完整成本/选型分析见 [docs/AUTODL_GUIDE.md](docs/AUTODL_GUIDE.md#step-1--注册-autodl--选-gpu)。
 
 ## 🚀 一键上手
 

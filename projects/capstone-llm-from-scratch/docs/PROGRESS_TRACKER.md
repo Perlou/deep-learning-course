@@ -138,7 +138,17 @@ AutoDL 上线工具链（preflight/launch/save）:    ████████�
 
 ## ⏳ 待开（代码就绪，需要 GPU）
 
-### 1. 上 AutoDL 跑 Base 正式训练
+### 显卡选型（基于 2026-05 AutoDL 实价）
+
+| 配置 | 推荐显卡 | ¥/h | 估时 | **总成本** |
+|---|---|---|---|---|
+| **Base (68.8M)** | RTX 4090 24G ⭐ | 2.29 | ~28-32h | **¥65-80** |
+| **Plus (486.3M)** | A100-PCIE 40G ⭐ | 3.45 | ~45-55h | **¥155-200** |
+| 两个都跑 | — | — | — | **≈ ¥240（充 ¥400 留 buffer）** |
+
+> A800 80G（5.24/h）最稳但贵 ¥80+；4090 跑 Plus 需要 100+h 风险高，不推荐。详见 [AUTODL_GUIDE.md](AUTODL_GUIDE.md#step-1--注册-autodl--选-gpu)。
+
+### 1. 上 AutoDL 跑 Base 正式训练（RTX 4090，~¥70）
 
 ```bash
 bash scripts/autodl/preflight.sh --profile base
@@ -146,8 +156,6 @@ bash scripts/autodl/launch.sh tiny  all       # 5 min 冒烟
 bash scripts/autodl/launch.sh small all       # 30 min 验证
 bash scripts/autodl/launch.sh base  all       # 12-18h 正式
 ```
-
-预期成本：¥150-300（4090 / A100 80G 单卡按量）。
 
 ### 2. 评测 + 发模型卡
 
@@ -157,14 +165,19 @@ python evaluate/benchmarks/alignbench.py --config configs/main.yaml
 bash scripts/release.sh base --stage dpo --push-hf you/ClearMind-Base
 ```
 
-### 3. Plus 训练 + 发布（可选）
+### 3. Plus 训练 + 发布（A100 40G，~¥175）
 
-```bash
-bash scripts/autodl/launch.sh plus all        # 30-40h 正式
-bash scripts/release.sh plus --stage dpo --push-hf you/ClearMind-Plus
+A100 40G 需要先调 `configs/plus.yaml`：
+```yaml
+pretrain:
+  batch_size: 8              # 默认 16 减半（A100 40G 显存预算）
+  gradient_accumulation: 16  # 翻倍保持 effective batch = 128
 ```
 
-预期成本：¥400-700（A100/A800 80G 单卡按量）。
+```bash
+bash scripts/autodl/launch.sh plus all        # 45-55h 正式
+bash scripts/release.sh plus --stage dpo --push-hf you/ClearMind-Plus
+```
 
 ---
 

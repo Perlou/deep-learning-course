@@ -39,21 +39,58 @@
 ## Step 1 — 注册 AutoDL + 选 GPU
 
 1. [autodl.com](https://www.autodl.com) 注册 + 实名认证
-2. 充值（Base ¥300 / Plus ¥800 起步）
-3. [算力市场](https://www.autodl.com/market/list) 选机：
+2. 充值（**¥400 推荐**：Base + Plus 全跑约 ¥240，留 50% buffer 应对调试 / 重跑 / 续训抖动）
+3. [算力市场](https://www.autodl.com/market/list) 按下表选机
+
+### 1.1 性价比矩阵（基于 2026-05 AutoDL 实价）
+
+| 显卡 | bf16 | VRAM | ¥/h | Base 适配 | Plus 适配 |
+|---|---|---|---|---|---|
+| **RTX 4090 24G** ⭐ | ✅ | 24G | **2.29** | ✅ 完美 | 🔴 显存紧（必须 ckpt + batch=4，~115h 不推荐） |
+| **A100-PCIE 40G** ⭐ | ✅ | 40G | **3.45** | ✅ 比 4090 快 30% | 🟢 必须开 activation_ckpt 但够用 |
+| A100 80G / A800 80G | ✅ | 80G | 4-5.24 | 杀鸡用牛刀 | 🟢 最宽松 |
+| V100 32G | ❌ 仅 fp16 | 32G | 1.98 | ⚠️ fp16 不稳 | 🔴 没 bf16 + 显存紧，劝退 |
+
+### 1.2 训练成本估算（含 Pretrain + SFT + DPO 全流程）
+
+| 配置 | 推荐显卡 | 估时 | **总成本** | 备注 |
+|---|---|---|---|---|
+| **Base (68.8M)** | RTX 4090 24G | ~28-32h | **¥65-80** | 性价比之王 |
+| Base (备选) | A100 40G | ~22-26h | ¥76-90 | 快 30%，贵 ¥10-20 |
+| **Plus (486.3M)** | A100-PCIE 40G | ~45-55h | **¥155-200** | 最优性价比 |
+| Plus (最稳) | A800 80G | ~50-60h | ¥262-315 | 最宽松，贵 ¥80+ |
+| Plus (省钱踩雷) | RTX 4090 24G | ~95-115h | ¥218-263 | 4-5 天连续训风险高，**不推荐** |
+
+> 💰 **推荐组合**：Base (4090) + Plus (A100 40G) ≈ **¥240 总预算**，充 ¥400 留 buffer。
+
+### 1.3 实例配置（无论选哪张卡）
 
 | 项 | Tiny / Small | Base | Plus |
 |---|---|---|---|
-| GPU | 任意 (RTX 3090 24G 起) | RTX 4090 24G ⭐推荐 / A100 80G | A100 80G / A800 80G |
 | 内存 | ≥ 16 GB | ≥ 32 GB | ≥ 64 GB |
 | 系统盘 | 30 GB | 60 GB | 100 GB |
 | 数据盘 | 30 GB | 50 GB | 80 GB |
 | 镜像 | **PyTorch 2.1+ / CUDA 12.x** | 同 | 同 |
-| 计费 | 按量付费 | 按量付费（**勾"关机不计费"**） | 按量付费 / 包日（看是否能稳定连续 30h+） |
+| 计费 | 按量付费（**勾"关机不计费"**） | 同 | 按量付费；如能稳跑 30h+ 可选包日 |
 
-> ⚠️ **务必勾"关机不计费"**。这样调试 / 中场休息时关机不烧钱。
+> ⚠️ **务必勾「关机不计费」**：调试 / 中场休息直接关机不烧钱。
 >
-> ⚠️ **PyTorch 镜像必须 ≥ 2.1**（项目用了 `torch.amp.autocast` 新 API，旧版会触发兼容路径但不稳定）。
+> ⚠️ **PyTorch 镜像必须 ≥ 2.1**（项目用了 `torch.amp.autocast` 新 API + `fused=True` AdamW + `torch.compile`）。
+>
+> ⚠️ **V100 直接劝退**：没 bf16 支持，强行 fp16 + GradScaler 慢 30% 还偶发 NaN；省下来的 ¥0.31/h 不抵风险。
+
+### 1.4 Plus on A100 40G 的配置调整
+
+A100 40G 显存对 Plus 紧但够用，需要在 `configs/plus.yaml` 改两行：
+
+```yaml
+pretrain:
+  batch_size: 8              # 默认 16 减半
+  gradient_accumulation: 16  # 翻倍保持 effective batch = 128
+  use_gradient_checkpointing: true   # 已默认开
+```
+
+SFT / DPO 同理减半。实际显存占用 ~14-18 GB（含 optimizer states + activation ckpt），留有 50% buffer。
 
 ---
 
