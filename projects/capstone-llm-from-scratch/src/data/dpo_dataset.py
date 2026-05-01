@@ -2,159 +2,208 @@
 DPODataset — 偏好对齐数据集
 ============================
 
-处理 Direct Preference Optimization 训练数据。
-每个样本包含一个 prompt 和两个回复:
-  - chosen:   人类偏好的高质量回复
-  - rejected: 人类不偏好的低质量回复
+支持两种数据格式：
 
-DPO 训练目标:
-  让模型学会: P(chosen | prompt) > P(rejected | prompt)
+1. **conversations 列表（minimind 风格，默认）**：
+   ``{"chosen": [{"role": ..., "content": ...}, ...],
+       "rejected": [{"role": ..., "content": ...}, ...]}``
+   chosen / rejected 是完整的多轮对话历史（含 user 提问和 assistant 回复）。
+   用 ``apply_chat_template`` 渲染后扫描 ``<|im_start|>assistant\\n`` 与 ``<|im_end|>\\n``
+   定位 assistant 段生成 loss mask。
 
-数据格式:
-  {"prompt": "...", "chosen": "...", "rejected": "..."}
+2. **字符串字段（向后兼容）**：
+   ``{"prompt": "...", "chosen": "...", "rejected": "..."}``
+   自动构造 ``conversations = [{"role":"user","content":prompt},
+   {"role":"assistant","content":chosen|rejected}]``。
+
+输出格式与 ClearMind :class:`DPOTrainer` 兼容：
+  ``chosen_input_ids`` / ``chosen_labels`` / ``rejected_input_ids`` / ``rejected_labels``，
+其中 labels 在 prompt/system/user/tool/padding 区域为 -100，仅 assistant 段保留 token id。
 """
+
+from __future__ import annotations
 
 import json
 import os
 import random
+from typing import Sequence
 
 import torch
 from torch.utils.data import Dataset
+
+
+def _normalize_message(msg: dict) -> dict:
+    """与 SFTDataset 共享的消息规范化"""
+    if "role" in msg:
+        return {
+            "role": msg["role"],
+            "content": msg.get("content", ""),
+            **{
+                k: v
+                for k, v in msg.items()
+                if k in ("reasoning_content", "tools", "tool_calls") and v is not None
+            },
+        }
+    role_map = {
+        "human": "user",
+        "user": "user",
+        "gpt": "assistant",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool",
+        "observation": "tool",
+    }
+    return {
+        "role": role_map.get(msg.get("from", "user"), "user"),
+        "content": msg.get("value", ""),
+    }
+
+
+def _to_conversations(value, prompt: str | None = None) -> list[dict]:
+    """把 chosen/rejected 字段转为 conversations 列表"""
+    # 列表形式（minimind 风格）：直接规范化
+    if isinstance(value, list):
+        return [_normalize_message(m) for m in value]
+    # 字符串形式：拼接 prompt + assistant 回复
+    if isinstance(value, str):
+        convs: list[dict] = []
+        if prompt:
+            convs.append({"role": "user", "content": prompt})
+        convs.append({"role": "assistant", "content": value})
+        return convs
+    raise ValueError(f"无法识别 chosen/rejected 字段类型: {type(value).__name__}")
 
 
 class DPODataset(Dataset):
     """DPO 偏好对齐数据集
 
     Args:
-        data_path:   数据文件路径 (.jsonl 或 .json)
-        tokenizer:   分词器实例
-        max_seq_len: 最大序列长度
-        _samples:    内部使用 — 直接传入样本列表 (跳过文件加载)
+        data_path:    ``.jsonl`` 或 ``.json`` 数据文件路径
+        tokenizer:    :class:`HFTokenizer` 实例
+        max_seq_len:  最大序列长度
+        seed:         shuffle / 增强随机种子
+        _samples:     内部使用——直接传入样本列表
     """
 
     def __init__(
         self,
-        data_path: str = None,
+        data_path: str | None = None,
         tokenizer=None,
-        max_seq_len: int = 512,
-        _samples: list[dict] = None,
+        max_seq_len: int = 1024,
+        seed: int | None = None,
+        _samples: list[dict] | None = None,
     ):
         super().__init__()
+        if tokenizer is None:
+            raise ValueError("DPODataset 需要 tokenizer（HFTokenizer 实例）")
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
+        self._rng = random.Random(seed)
 
-        # 加载数据
         if _samples is not None:
-            self.samples = _samples
+            self.samples: list[dict] = list(_samples)
         else:
             print(f"📦 加载 DPO 数据: {data_path}")
             self.samples = self._load_data(data_path)
         print(f"  样本数: {len(self.samples):,}")
+
+    @staticmethod
+    def _load_data(data_path: str) -> list[dict]:
+        ext = os.path.splitext(data_path)[1]
+        if ext == ".jsonl":
+            out: list[dict] = []
+            with open(data_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        out.append(json.loads(line))
+            return out
+        if ext == ".json":
+            with open(data_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        raise ValueError(f"不支持的文件格式: {ext}")
 
     @classmethod
     def create_with_split(
         cls,
         data_path: str,
         tokenizer,
-        max_seq_len: int = 512,
-        val_ratio: float = 0.1,
+        max_seq_len: int = 1024,
+        val_ratio: float = 0.05,
         seed: int = 42,
     ) -> tuple["DPODataset", "DPODataset"]:
-        """创建训练集和验证集
-
-        加载全部样本后 shuffle → 按索引划分。
-
-        Returns:
-            (train_dataset, val_dataset)
-        """
-        print(f"📦 加载 DPO 数据: {data_path}")
-        temp = cls(data_path=data_path, tokenizer=tokenizer, max_seq_len=max_seq_len)
-        all_samples = temp.samples.copy()
-
+        with open(data_path, "r", encoding="utf-8") as f:
+            samples = [json.loads(line) for line in f if line.strip()]
         rng = random.Random(seed)
-        rng.shuffle(all_samples)
+        rng.shuffle(samples)
+        split = int(len(samples) * (1 - val_ratio))
+        print(f"📊 DPO 数据划分: 训练 {split:,} / 验证 {len(samples) - split:,}")
+        train = cls(
+            _samples=samples[:split],
+            tokenizer=tokenizer,
+            max_seq_len=max_seq_len,
+            seed=seed,
+        )
+        val = cls(
+            _samples=samples[split:],
+            tokenizer=tokenizer,
+            max_seq_len=max_seq_len,
+            seed=seed + 1,
+        )
+        return train, val
 
-        split_idx = int(len(all_samples) * (1 - val_ratio))
-        print(f"📊 数据划分: 训练 {split_idx} 样本, 验证 {len(all_samples) - split_idx} 样本")
+    # ----------------------------------------------------------
+    # 渲染单侧（chosen 或 rejected）
+    # ----------------------------------------------------------
 
-        train_ds = cls(_samples=all_samples[:split_idx], tokenizer=tokenizer, max_seq_len=max_seq_len)
-        val_ds = cls(_samples=all_samples[split_idx:], tokenizer=tokenizer, max_seq_len=max_seq_len)
-
-        return train_ds, val_ds
-
-    def _load_data(self, data_path: str) -> list[dict]:
-        """加载数据文件"""
-        ext = os.path.splitext(data_path)[1]
-
-        if ext == ".jsonl":
-            samples = []
-            with open(data_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        samples.append(json.loads(line))
-            return samples
-        elif ext == ".json":
-            with open(data_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        else:
-            raise ValueError(f"不支持的文件格式: {ext}")
-
-    def _tokenize_pair(
-        self,
-        prompt: str,
-        response: str,
-    ) -> tuple[list[int], list[int]]:
-        """将 prompt + response 编码并构建 labels
+    def _encode_side(self, convs: list[dict]) -> tuple[list[int], list[int]]:
+        """渲染 + tokenize + 生成 assistant loss mask + padding
 
         Returns:
-            (input_ids, labels) - 其中 prompt 部分的 labels 为 -100
+            (input_ids, labels)，长度均为 ``max_seq_len``，labels 中非 assistant 区域为 -100
         """
-        prompt_text = f"Human: {prompt}\nAssistant: "
-        full_text = f"Human: {prompt}\nAssistant: {response}"
-
-        prompt_ids = self.tokenizer.encode(prompt_text, add_bos=True, add_eos=False)
-        full_ids = self.tokenizer.encode(full_text, add_bos=True, add_eos=True)
+        text = self.tokenizer.apply_chat_template(
+            convs,
+            add_generation_prompt=False,
+            tokenize=False,
+        )
+        ids = self.tokenizer.encode(text, add_bos=False, add_eos=False)
 
         # 截断
-        if len(full_ids) > self.max_seq_len:
-            full_ids = full_ids[: self.max_seq_len]
-            full_ids[-1] = self.tokenizer.eos_id
+        if len(ids) > self.max_seq_len:
+            ids = ids[: self.max_seq_len]
 
-        # Labels: prompt 部分为 -100
-        labels = full_ids.copy()
-        prompt_len = min(len(prompt_ids), len(full_ids))
-        labels[:prompt_len] = [-100] * prompt_len
+        mask = self.tokenizer.generate_assistant_mask(ids)
 
         # Padding
-        pad_len = self.max_seq_len - len(full_ids)
+        pad_id = self.tokenizer.pad_id
+        pad_len = self.max_seq_len - len(ids)
         if pad_len > 0:
-            full_ids = full_ids + [self.tokenizer.pad_id] * pad_len
-            labels = labels + [-100] * pad_len
+            ids = ids + [pad_id] * pad_len
+            mask = mask + [0] * pad_len
 
-        return full_ids, labels
+        labels = list(ids)
+        for i, m in enumerate(mask):
+            if m == 0:
+                labels[i] = -100
+        return ids, labels
+
+    # ----------------------------------------------------------
+    # Dataset 接口
+    # ----------------------------------------------------------
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> dict:
-        """获取一个 DPO 训练样本
-
-        Returns:
-            dict with:
-              chosen_input_ids:   [seq_len] chosen 回复的输入
-              chosen_labels:      [seq_len] chosen 回复的标签
-              rejected_input_ids: [seq_len] rejected 回复的输入
-              rejected_labels:    [seq_len] rejected 回复的标签
-        """
         sample = self.samples[idx]
+        prompt = sample.get("prompt")  # 字符串模式下需要
 
-        prompt = sample["prompt"]
-        chosen = sample["chosen"]
-        rejected = sample["rejected"]
+        chosen_convs = _to_conversations(sample["chosen"], prompt)
+        rejected_convs = _to_conversations(sample["rejected"], prompt)
 
-        chosen_ids, chosen_labels = self._tokenize_pair(prompt, chosen)
-        rejected_ids, rejected_labels = self._tokenize_pair(prompt, rejected)
+        chosen_ids, chosen_labels = self._encode_side(chosen_convs)
+        rejected_ids, rejected_labels = self._encode_side(rejected_convs)
 
         return {
             "chosen_input_ids": torch.tensor(chosen_ids, dtype=torch.long),

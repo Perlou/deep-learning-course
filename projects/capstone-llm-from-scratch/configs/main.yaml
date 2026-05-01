@@ -1,0 +1,92 @@
+# ClearMind × MiniMind-3 对齐主力配置（约 64M 参数）
+# 复刻 minimind-3 dense 版本：hidden=768, layers=8, GQA 8:4
+# 目标：使用相同数据 + ClearMind 的工程优势（残差初始化、QK-Norm[规划]、val split + early stop、
+# torch.compile 兼容 LoRA）训练出可发布到 HuggingFace / ModelScope 的小模型
+
+model:
+  d_model: 768
+  n_heads: 8
+  n_kv_heads: 4          # GQA 2:1
+  n_layers: 8
+  d_ff: 2432             # ⌈768·π/64⌉·64
+  vocab_size: 6400
+  max_seq_len: 1024
+  dropout: 0.0
+  norm_eps: 1.0e-6
+
+tokenizer:
+  type: hf
+  path: tokenizer/minimind
+  bos_token_id: 1
+  eos_token_id: 2
+  pad_token_id: 0
+
+pretrain:
+  batch_size: 32
+  gradient_accumulation: 4                       # effective batch = 128
+  max_steps: 50000
+  lr: 5.0e-4
+  min_lr: 5.0e-5
+  weight_decay: 0.1
+  warmup_steps: 2000
+  save_every: 5000
+  eval_every: 1000
+  dtype: bfloat16
+  log_every: 100
+  num_workers: 8
+  pretrain_mode: per_sample
+  use_tensorboard: true
+  # Phase 4 工程化加速（base 推荐前两项；activation_check 8 层模型可不开）
+  use_compile: true                              # +20-40% 训练吞吐（CUDA only）
+  use_fused_adamw: true                          # +10-15% optimizer step
+  use_gradient_checkpointing: false              # 8 层模型显存够，关掉省 25% 吞吐
+  use_wandb: false
+  wandb_backend: swanlab
+  wandb_project: "ClearMind-Base"
+
+sft:
+  batch_size: 16
+  gradient_accumulation: 4
+  epochs: 2
+  lr: 1.0e-5
+  min_lr: 1.0e-6
+  weight_decay: 0.01
+  dtype: bfloat16
+  log_every: 100
+  patience: 3
+  num_workers: 8
+  use_tensorboard: true
+  system_prompt_ratio: 0.2
+  empty_think_strip_ratio: 0.8
+
+dpo:
+  batch_size: 4
+  gradient_accumulation: 8
+  epochs: 1
+  lr: 5.0e-7
+  beta: 0.1
+  dtype: bfloat16
+  log_every: 50
+  patience: 3
+  num_workers: 8
+  use_tensorboard: true
+
+generation:
+  max_new_tokens: 1024
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.1
+
+# ===== 发布元信息（HF/ModelScope 用）=====
+release:
+  model_name: ClearMind-Base
+  display_name: "ClearMind-Base (64M)"
+  family: "ClearMind"
+  size_label: "64M"
+  tagline: "Dense 64M LLM trained from scratch, MiniMind-3-aligned baseline"
+  license: apache-2.0
+  hf_repo: "<your_hf_username>/ClearMind-Base"
+  modelscope_repo: "<your_modelscope_username>/ClearMind-Base"
+  base_model: ClearMind-Base-Pretrain
+  intended_use: "端侧/低算力对话、教学示例、原型验证"

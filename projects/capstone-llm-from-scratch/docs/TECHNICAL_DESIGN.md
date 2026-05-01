@@ -12,16 +12,18 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         MiniMind 系统架构                                │
+│                         ClearMind 系统架构                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                      Scripts Layer (入口脚本)                     │   │
 │  │                                                                   │   │
-│  │   00_smoke_test (最小链路验证)                                     │   │
-│  │   01_prepare_data → 02_train_tokenizer → 03_pretrain              │   │
-│  │               → 04_sft → 05_dpo → 06_chat                         │   │
-│  │   03_pretrain_ddp (torchrun 多 GPU 预训练入口)                    │   │
+│  │   download_data.py (按 profile 拉 minimind 数据)                  │   │
+│  │   smoke_test.py (端到端最小链路 + 推理验证)                        │   │
+│  │   train.py --stage pretrain → sft → dpo                           │   │
+│  │   chat.py (chat_template 多轮对话 + open_thinking)                │   │
+│  │   launch_ddp.py (torchrun 多 GPU 预训练)                          │   │
+│  │   autodl_train.sh (AutoDL Base/Plus 一键)                          │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                    │                                     │
 │                                    ▼                                     │
@@ -499,35 +501,47 @@ capstone-llm-from-scratch/
 │       ├── generate.py              # 文本生成引擎
 │       └── chat.py                  # 交互式对话
 │
-├── scripts/                         # 入口脚本 (按顺序编号)
-│   ├── prepare_data.py              # 数据准备 (样例/HuggingFace)
-│   ├── train_tokenizer.py           # 训练 BPE 分词器
+├── scripts/                         # 入口脚本
 │   ├── train.py                     # 统一训练 (--stage pretrain/sft/dpo)
-│   ├── chat.py                      # 启动对话
-│   └── autodl_train.sh              # AutoDL 一键训练
+│   ├── chat.py                      # 对话（chat_template + open_thinking）
+│   ├── smoke_test.py                # 端到端最小链路冒烟
+│   ├── download_data.py             # minimind 数据按 profile 下载
+│   ├── launch_ddp.py                # DDP 多 GPU 入口
+│   └── autodl_train.sh              # AutoDL 一键 Base/Plus
+│
+├── tokenizer/                       # 仓库自带 HF tokenizer（不在 data/ 下，便于 git 追踪）
+│   └── minimind/
+│       ├── tokenizer.json
+│       └── tokenizer_config.json
 │
 ├── evaluate/                        # 评估
-│   └── eval_perplexity.py           # 困惑度评估
+│   ├── eval_perplexity.py           # 困惑度（含 --compare 三阶段对比）
+│   ├── eval_generation.py           # 生成质量（Distinct-N + 重复率）
+│   ├── eval_instruction.py          # 指令跟随（5 类 + 拒绝识别）
+│   └── eval_benchmark.py            # 一键综合报告 + markdown
+│
+├── deploy/                          # 部署
+│   ├── api_server.py                # OpenAI 兼容 SSE API
+│   ├── web_demo.py                  # Gradio Web 对话
+│   ├── export_model.py              # safetensors 导出
+│   └── Dockerfile
 │
 ├── outputs/                         # 输出 (gitignore)
-│   ├── tokenizer/                   # 分词器文件
-│   ├── pretrain/                    # 预训练 checkpoints
-│   ├── sft/                         # SFT checkpoints
-│   ├── dpo/                         # DPO checkpoints
-│   └── logs/                        # 训练日志
+│   ├── pretrain/                    # final.pth + _resume.pth
+│   ├── sft/
+│   └── dpo/
 │
-├── data/                            # 数据目录 (gitignore)
-│   ├── raw/                         # 原始语料
-│   ├── pretrain/                    # 预训练数据 (tokenized)
-│   ├── sft/                         # SFT 数据
-│   └── dpo/                         # DPO 数据
+├── data/                            # 训练数据 (gitignore，用户从 modelscope/HF 下载)
+│   ├── pretrain_t2t_mini.jsonl
+│   ├── sft_t2t_mini.jsonl
+│   └── dpo.jsonl                    # 等
 │
 └── docs/                            # 文档
-    ├── PRD.md                       # 需求文档
-    ├── TECHNICAL_DESIGN.md          # 技术设计 (本文档)
-    ├── PROGRESS_TRACKER.md          # 开发进度
-    ├── ARCHITECTURE.md              # 架构深度解析
-    └── TRAINING_GUIDE.md            # 训练完整指南
+    ├── PRD.md
+    ├── TECHNICAL_DESIGN.md          # 本文档
+    ├── PROGRESS_TRACKER.md
+    ├── DEPLOY.md
+    └── AUTODL_GUIDE.md
 ```
 
 ---

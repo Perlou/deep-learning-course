@@ -75,11 +75,24 @@ class Attention(nn.Module):
         # None = 全局注意力, >0 = 滑动窗口
         self.sliding_window = config.sliding_window
 
-        # 预计算 RoPE 频率
-        cos, sin = precompute_rope_frequencies(self.head_dim, config.max_seq_len)
-        # 注册为 buffer (不参与梯度计算, 但会跟随模型移动到 GPU)
-        self.register_buffer("rope_cos", cos)
-        self.register_buffer("rope_sin", sin)
+        # 记录 max_seq_len：当 rope_cos/sin 没传入时（如独立单元测试），
+        # forward 内 fallback 即时构造（仅用于测试 / 调试，生产路径走 GPT 顶层共享）
+        self.max_seq_len = config.max_seq_len
+
+        # ========== QK-Norm（Llama-3 / Gemma2 同款）==========
+        # 在 Q 和 K 上各做一次 RMSNorm（在 head_dim 上），让 attention 分数更稳定，
+        # 长训过程不容易出现 attention logit 爆炸。
+        # 参数开销：仅 2 × head_dim 个可学习 scale（极小）。
+        self.use_qk_norm = getattr(config, "use_qk_norm", False)
+        if self.use_qk_norm:
+            from .normalization import RMSNorm
+
+            self.q_norm = RMSNorm(self.head_dim, eps=config.norm_eps)
+            self.k_norm = RMSNorm(self.head_dim, eps=config.norm_eps)
+
+        # RoPE 频率：不再每层注册 buffer（n_layers 份重复），改由 GPT 顶层共享
+        # （传入 forward 时通过参数 ``rope_cos`` / ``rope_sin``）
+        # 这是 minimind / Qwen3 等主流实现的标准做法。
 
     def forward(
         self,
@@ -87,6 +100,8 @@ class Attention(nn.Module):
         mask: torch.Tensor = None,
         kv_cache: tuple[torch.Tensor, torch.Tensor] | None = None,
         use_cache: bool = False,
+        rope_cos: torch.Tensor | None = None,
+        rope_sin: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         """
         Args:
@@ -112,6 +127,12 @@ class Attention(nn.Module):
         v = v.view(batch, seq_len, self.n_kv_heads, self.head_dim).transpose(1, 2)
         # 现在形状: [batch, n_heads/n_kv_heads, seq_len, head_dim]
 
+        # ========== Step 2.5: QK-Norm（如启用）==========
+        # 在 head_dim 上对 Q/K 做 RMSNorm，提高 attention 分数稳定性
+        if self.use_qk_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+
         # ========== Step 3: 应用 RoPE ==========
         # RoPE 的 position offset: 有 cache 时从 cache 长度开始编号
         if kv_cache is not None:
@@ -119,8 +140,15 @@ class Attention(nn.Module):
             offset = kv_cache[0].shape[2]
         else:
             offset = 0
-        q = apply_rope(q, self.rope_cos, self.rope_sin, offset=offset)
-        k = apply_rope(k, self.rope_cos, self.rope_sin, offset=offset)
+        # rope_cos/sin 由 GPT 顶层传入（顶层共享 buffer，避免 n_layers 份重复）
+        # 当独立调用 Attention（单元测试）时 fallback 到即时构造
+        if rope_cos is None or rope_sin is None:
+            cos, sin = precompute_rope_frequencies(
+                self.head_dim, self.max_seq_len, device=q.device
+            )
+            rope_cos, rope_sin = cos.to(q.dtype), sin.to(q.dtype)
+        q = apply_rope(q, rope_cos, rope_sin, offset=offset)
+        k = apply_rope(k, rope_cos, rope_sin, offset=offset)
 
         # ========== Step 4: KV Cache ==========
         if kv_cache is not None:

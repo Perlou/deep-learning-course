@@ -1,25 +1,54 @@
-# 数据目录
+# ==== 数据目录（不上传训练数据，让训练者自行从 minimind_dataset 下载）====
 data/
 !data/.gitkeep
+# 保留 src/data/ Python 包不被忽略（与顶层 data/ 同名导致的兼容写法）
 !**/src/data/
 !**/src/data/**
 
+# 注意：tokenizer/ 在顶层（独立于 data/），仓库必需资产，不忽略
 
-# 输出目录
+# ==== 输出目录 ====
 outputs/
 !outputs/.gitkeep
 
-# Python
+# ==== 训练日志 / 状态文件（运行时产物，不入仓库）====
+logs/
+*.pid
+*.state
+
+# ==== 评测报告（运行时产物，发模型卡前手动整理）====
+reports/
+
+# ==== 发布包（release.sh 产出的 tar.gz / safetensors 不入仓库）====
+release/
+
+# ==== LLM-Judge 本地缓存（避免 API key / 重复花钱）====
+.cache/
+
+# ==== Python ====
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
 .eggs/
 
-# IDE
+# venv
+venv/
+.venv/
+
+# pytest / mypy / ruff / deepeval caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.deepeval/
+
+# ==== IDE ====
 .vscode/
 .idea/
 
-# OS
+# ==== OS ====
 .DS_Store
 Thumbs.db
+
+# ==== Claude / project state ====
+.claude/settings.local.json

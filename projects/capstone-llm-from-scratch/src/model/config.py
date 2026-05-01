@@ -22,17 +22,26 @@ class ModelConfig:
     """GPT 模型配置
 
     Attributes:
-        d_model:     隐藏层维度 (embedding dimension)
-        n_heads:     注意力头数 (query heads)
-        n_kv_heads:  KV 头数 (key/value heads, 用于 GQA)
-                     等于 n_heads 时为标准 MHA
-                     小于 n_heads 时为 GQA (Grouped Query Attention)
-        n_layers:    Transformer 层数
-        d_ff:        FFN 中间维度 (SwiGLU 的隐藏层大小)
-        vocab_size:  词表大小
-        max_seq_len: 最大序列长度
-        dropout:     Dropout 比率
-        norm_eps:    RMSNorm 的 epsilon
+        d_model:        隐藏层维度 (embedding dimension)
+        n_heads:        注意力头数 (query heads)
+        n_kv_heads:     KV 头数 (key/value heads, 用于 GQA)
+                        等于 n_heads 时为标准 MHA
+                        小于 n_heads 时为 GQA (Grouped Query Attention)
+        n_layers:       Transformer 层数
+        d_ff:           FFN 中间维度 (SwiGLU 的隐藏层大小)
+        vocab_size:     词表大小
+        max_seq_len:    最大序列长度
+        dropout:        Dropout 比率
+        norm_eps:       RMSNorm 的 epsilon
+        sliding_window: Sliding Window Attention 窗口大小（None 关闭）
+        rope_theta:     RoPE 频率底数。默认 1e6（与 minimind / Qwen3 对齐，
+                        长上下文友好）。传统 GPT-2/Llama-2 用 10000
+        use_qk_norm:    是否在 attention 中对 Q/K 做 RMSNorm（Llama-3/Gemma2 同款）
+                        长训 loss 更稳，参数开销极小（仅 2 * n_layers * head_dim）
+        rope_scaling:   YaRN 等长上下文外推配置（None 关闭）。示例：
+                        ``{"type": "yarn", "factor": 4, "original_max_pos": 1024,
+                          "beta_fast": 32, "beta_slow": 1, "attention_factor": 1.0}``
+                        启用后推理时可外推到 ``factor × original_max_pos`` 长度
     """
 
     # --- 模型维度 ---
@@ -46,6 +55,11 @@ class ModelConfig:
     dropout: float = 0.1
     norm_eps: float = 1e-6
     sliding_window: int | None = None  # None = 全局注意力, >0 = 滑动窗口大小
+
+    # --- 现代 LLM 架构升级（Phase 2）---
+    rope_theta: float = 1.0e6           # 与 minimind / Qwen3 对齐
+    use_qk_norm: bool = True            # Llama-3 / Gemma2 同款
+    rope_scaling: dict | None = None    # YaRN 长上下文外推（推理时启用）
 
     @property
     def head_dim(self) -> int:
@@ -62,42 +76,73 @@ class ModelConfig:
 
     @classmethod
     def tiny(cls) -> "ModelConfig":
-        """Tiny 配置 (~1.5M 参数), 用于快速验证训练流程"""
+        """Tiny 配置 (~0.5M 参数), 用于 CPU/MPS 冒烟测试
+
+        与 ``configs/tiny.yaml`` 一致。使用 minimind tokenizer (vocab=6400)。
+        设计目标：本地最快路径跑通 pretrain → sft → dpo 全流程；不追求生成质量。
+        """
         return cls(
-            d_model=128,
-            n_heads=4,
-            n_kv_heads=4,
-            n_layers=4,
-            d_ff=352,
-            vocab_size=2000,
+            d_model=64,
+            n_heads=4,        # head_dim = 16
+            n_kv_heads=2,     # GQA 2:1
+            n_layers=2,
+            d_ff=256,         # ⌈64·π/64⌉·64
+            vocab_size=6400,
             max_seq_len=128,
             dropout=0.1,
         )
 
     @classmethod
     def small(cls) -> "ModelConfig":
-        """Small 配置 (~26M 参数), 适合 MacBook CPU/MPS"""
+        """Small 配置 (~26M 参数), 对齐 minimind2-small
+
+        与 ``configs/small.yaml`` 一致。
+        """
         return cls(
             d_model=512,
             n_heads=8,
-            n_kv_heads=8,  # 标准 MHA
+            n_kv_heads=2,    # GQA 4:1
             n_layers=8,
-            d_ff=1408,
-            vocab_size=8000,
-            max_seq_len=512,
+            d_ff=1664,       # ⌈512·π/64⌉·64
+            vocab_size=6400,
+            max_seq_len=1024,
+            dropout=0.0,
         )
 
     @classmethod
-    def medium(cls) -> "ModelConfig":
-        """Medium 配置 (~200M 参数), 需要 GPU"""
+    def main(cls) -> "ModelConfig":
+        """Main 配置 (~64M 参数), 对齐 minimind-3 dense
+
+        与 ``configs/main.yaml`` 一致。这是 ClearMind-Base 发布版本的训练规格。
+        """
         return cls(
-            d_model=1024,
-            n_heads=16,
-            n_kv_heads=8,  # GQA (2:1)
-            n_layers=16,
-            d_ff=2816,
-            vocab_size=32000,
+            d_model=768,
+            n_heads=8,
+            n_kv_heads=4,    # GQA 2:1
+            n_layers=8,
+            d_ff=2432,       # ⌈768·π/64⌉·64
+            vocab_size=6400,
             max_seq_len=1024,
+            dropout=0.0,
+        )
+
+    @classmethod
+    def plus(cls) -> "ModelConfig":
+        """Plus 配置 (~478M 参数), ClearMind-Plus 旗舰版
+
+        与 ``configs/plus.yaml`` 一致。dense 路线，对标 minimind-3-moe 198M-A64M
+        但用单 token 计算量 ~7× 的 dense 模型超越其效果。
+        单卡 A100/A800 80GB bf16 训练，两天内完成 Pretrain + SFT + DPO。
+        """
+        return cls(
+            d_model=1280,
+            n_heads=16,      # head_dim = 80
+            n_kv_heads=4,    # GQA 4:1
+            n_layers=24,
+            d_ff=4032,       # ⌈1280·π/64⌉·64
+            vocab_size=6400,
+            max_seq_len=1024,
+            dropout=0.0,
         )
 
     @classmethod
@@ -173,11 +218,18 @@ class ModelConfig:
                 f"sliding_window ({self.sliding_window}) 至少为 64"
             )
 
-        # d_ff 通常约为 8/3 × d_model (SwiGLU 最佳)
-        expected_ff = int(8 / 3 * self.d_model)
-        if abs(self.d_ff - expected_ff) > expected_ff * 0.2:
+        # d_ff 推荐两种公式之一：
+        #   - 经典 SwiGLU：约 8/3 · d_model
+        #   - minimind / Qwen3 风格：⌈d_model·π/64⌉·64（TensorCore/SIMD 对齐）
+        # 任一公式偏差超过 30% 才报警（避免对小尺寸误报）
+        expected_classic = int(8 / 3 * self.d_model)
+        expected_aligned = -(-int(self.d_model * 3.141592653589793) // 64) * 64
+        diff_classic = abs(self.d_ff - expected_classic) / max(expected_classic, 1)
+        diff_aligned = abs(self.d_ff - expected_aligned) / max(expected_aligned, 1)
+        if min(diff_classic, diff_aligned) > 0.3:
             warnings.warn(
-                f"d_ff={self.d_ff} 偏离推荐值 ≈{expected_ff} (8/3 × d_model) 超过 20%",
+                f"d_ff={self.d_ff} 偏离推荐值 (经典 ≈{expected_classic} 或 "
+                f"对齐 ≈{expected_aligned}) 超过 30%",
                 UserWarning,
                 stacklevel=2,
             )

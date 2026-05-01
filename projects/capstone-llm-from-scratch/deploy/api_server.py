@@ -1,456 +1,389 @@
 """
-api_server.py — FastAPI REST API 服务
-======================================
+api_server.py — OpenAI 兼容 REST API（FastAPI + SSE 流式）
+=========================================================
 
-提供 HTTP API 接口，兼容 OpenAI Chat Completions 格式。
+将训练好的 ClearMind 模型暴露为 OpenAI 兼容的 HTTP API，可被任意 OpenAI 客户端
+（``openai-python``、``LangChain``、``Cherry Studio``、``OpenWebUI`` 等）直接调用。
 
-支持:
-  - /v1/chat/completions  对话补全 (兼容 OpenAI 格式)
-  - /v1/completions       文本续写
-  - /health               健康检查
-  - /model/info           模型信息
+支持端点:
+  POST /v1/chat/completions    对话补全（兼容 OpenAI Chat Completions 协议）
+  POST /v1/completions          文本续写（不走 chat_template）
+  GET  /v1/models               列出可用模型
+  GET  /health                  健康检查
 
-启动方式:
-  python deploy/api_server.py --model outputs/dpo/final.pth --port 8000
+启动:
+  python deploy/api_server.py --config configs/main.yaml \\
+      --model outputs/dpo/final.pth --port 8000
 
 测试:
   curl http://localhost:8000/v1/chat/completions \\
     -H "Content-Type: application/json" \\
-    -d '{"messages": [{"role": "user", "content": "你好"}]}'
+    -d '{"messages": [{"role": "user", "content": "你好"}], "stream": false}'
+
+  # 流式
+  curl http://localhost:8000/v1/chat/completions \\
+    -H "Content-Type: application/json" \\
+    -d '{"messages": [{"role": "user", "content": "讲个笑话"}], "stream": true}'
 """
 
+from __future__ import annotations
+
+import argparse
+import json
 import os
 import sys
 import time
 import uuid
-import argparse
-import asyncio
 from pathlib import Path
+from typing import AsyncGenerator
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import torch
-import yaml
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-
-from src.model.config import ModelConfig
-from src.model.gpt import GPT
-from src.data.tokenizer import ClearMindTokenizer
-from src.inference.generate import generate_text
-from src.training.trainer_utils import get_device, load_checkpoint
-
 
 # ============================================================
-# 请求/响应模型 (兼容 OpenAI API 格式)
+# 模型 / Tokenizer 全局状态（启动时初始化）
 # ============================================================
 
 
-class ChatMessage(BaseModel):
-    role: str = "user"
-    content: str = ""
+class _ServerState:
+    model = None
+    tokenizer = None
+    device = None
+    model_id: str = "ClearMind"
+    config_path: str = ""
+
+    @classmethod
+    def is_ready(cls) -> bool:
+        return cls.model is not None
 
 
-class ChatCompletionRequest(BaseModel):
-    model: str = "clearmind"
-    messages: list[ChatMessage]
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    top_p: float = Field(default=0.9, ge=0.0, le=1.0)
-    top_k: int = Field(default=50, ge=0)
-    max_tokens: int = Field(default=300, ge=1, le=2048)
-    stream: bool = False
-
-
-class CompletionRequest(BaseModel):
-    model: str = "clearmind"
-    prompt: str
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    top_p: float = Field(default=0.9, ge=0.0, le=1.0)
-    top_k: int = Field(default=50, ge=0)
-    max_tokens: int = Field(default=300, ge=1, le=2048)
-    stream: bool = False
-
-
-class ChatCompletionResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str = "clearmind"
-    choices: list[dict]
-    usage: dict
-
-
-class CompletionResponse(BaseModel):
-    id: str
-    object: str = "text_completion"
-    created: int
-    model: str = "clearmind"
-    choices: list[dict]
-
-
-# ============================================================
-# 全局模型实例
-# ============================================================
-
-app = FastAPI(
-    title="ClearMind API",
-    description="ClearMind 大语言模型 API 服务",
-    version="1.0.0",
-)
-
-# CORS 配置 (允许前端跨域访问)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 全局模型引用
-model = None
-tokenizer = None
-device = None
-model_name = "clearmind"
-model_info = {}
-
-# 推理锁 (单模型不支持并发推理)
-inference_lock = asyncio.Lock()
-
-
-# ============================================================
-# API 端点
-# ============================================================
-
-
-@app.get("/health")
-async def health_check():
-    """健康检查"""
-    return {
-        "status": "ok",
-        "model_loaded": model is not None,
-        "device": str(device),
-    }
-
-
-@app.get("/model/info")
-async def get_model_info():
-    """模型信息"""
-    if model is None:
-        raise HTTPException(status_code=503, detail="模型未加载")
-    return model_info
-
-
-@app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
-    """对话补全 (兼容 OpenAI 格式)"""
-    if model is None:
-        raise HTTPException(status_code=503, detail="模型未加载")
-
-    # 构建对话 prompt
-    prompt_parts = []
-    for msg in request.messages:
-        if msg.role == "user":
-            prompt_parts.append(f"Human: {msg.content}")
-        elif msg.role == "assistant":
-            prompt_parts.append(f"Assistant: {msg.content}")
-        elif msg.role == "system":
-            prompt_parts.append(msg.content)
-
-    prompt = "\n".join(prompt_parts) + "\nAssistant: "
-
-    if request.stream:
-        return StreamingResponse(
-            _stream_generate(prompt, request),
-            media_type="text/event-stream",
-        )
-
-    # 非流式生成
-    async with inference_lock:
-        reply = await asyncio.to_thread(_generate_reply, prompt, request)
-
-    response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-
-    return ChatCompletionResponse(
-        id=response_id,
-        created=int(time.time()),
-        model=model_name,
-        choices=[
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": reply},
-                "finish_reason": "stop",
-            }
-        ],
-        usage={
-            "prompt_tokens": len(tokenizer.encode(prompt)),
-            "completion_tokens": len(tokenizer.encode(reply)),
-            "total_tokens": len(tokenizer.encode(prompt))
-            + len(tokenizer.encode(reply)),
-        },
-    )
-
-
-@app.post("/v1/completions")
-async def completions(request: CompletionRequest):
-    """文本续写"""
-    if model is None:
-        raise HTTPException(status_code=503, detail="模型未加载")
-
-    async with inference_lock:
-        output = await asyncio.to_thread(_generate_reply, request.prompt, request)
-
-    response_id = f"cmpl-{uuid.uuid4().hex[:8]}"
-
-    return CompletionResponse(
-        id=response_id,
-        created=int(time.time()),
-        model=model_name,
-        choices=[
-            {
-                "index": 0,
-                "text": output,
-                "finish_reason": "stop",
-            }
-        ],
-    )
-
-
-# ============================================================
-# 生成逻辑
-# ============================================================
-
-
-def _generate_reply(prompt: str, request) -> str:
-    """同步生成回复"""
-    output = generate_text(
-        model=model,
-        tokenizer=tokenizer,
-        prompt=prompt,
-        max_new_tokens=request.max_tokens,
-        temperature=request.temperature,
-        top_k=request.top_k,
-        top_p=request.top_p,
-        device=device,
-    )
-
-    # 提取 Assistant 回复
-    if "Assistant: " in output:
-        reply = output.split("Assistant: ")[-1]
-    else:
-        reply = output
-
-    # 清理特殊 token
-    reply = reply.replace("</s>", "").replace("<s>", "").strip()
-    return reply
-
-
-async def _stream_generate(prompt: str, request):
-    """流式生成 (SSE 格式)"""
-    import json
-
-    response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-    created = int(time.time())
-
-    # 编码 prompt
-    input_ids = tokenizer.encode(prompt, add_bos=True, add_eos=False)
-    input_tensor = torch.tensor([input_ids], dtype=torch.long, device=device)
-
-    model.eval()
-    generated_text = ""
-    max_seq_len = getattr(model.config, "max_seq_len", 512)
-
-    with torch.no_grad():
-        for _ in range(request.max_tokens):
-            cond_ids = input_tensor[:, -max_seq_len:]
-            logits, _, _ = model(cond_ids)
-            logits = logits[:, -1, :]
-
-            # Temperature
-            if request.temperature > 0:
-                logits = logits / request.temperature
-            else:
-                next_token = logits.argmax(dim=-1, keepdim=True)
-                input_tensor = torch.cat([input_tensor, next_token], dim=1)
-                token_text = tokenizer.decode([next_token.item()])
-                if next_token.item() == tokenizer.eos_id:
-                    break
-                generated_text += token_text
-                chunk = {
-                    "id": response_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model_name,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": token_text},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                continue
-
-            # Top-k
-            if request.top_k > 0:
-                import torch.nn.functional as F
-
-                top_k_vals, _ = torch.topk(logits, min(request.top_k, logits.size(-1)))
-                min_top_k = top_k_vals[:, -1].unsqueeze(-1)
-                logits = torch.where(
-                    logits < min_top_k,
-                    torch.full_like(logits, float("-inf")),
-                    logits,
-                )
-
-            # 采样
-            import torch.nn.functional as F
-
-            probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-
-            input_tensor = torch.cat([input_tensor, next_token], dim=1)
-
-            if next_token.item() == tokenizer.eos_id:
-                break
-
-            # 解码并发送
-            token_text = tokenizer.decode([next_token.item()])
-            generated_text += token_text
-
-            chunk = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model_name,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": token_text},
-                        "finish_reason": None,
-                    }
-                ],
-            }
-            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-            await asyncio.sleep(0)  # 让出事件循环
-
-    # 发送结束信号
-    end_chunk = {
-        "id": response_id,
-        "object": "chat.completion.chunk",
-        "created": created,
-        "model": model_name,
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-    }
-    yield f"data: {json.dumps(end_chunk, ensure_ascii=False)}\n\n"
-    yield "data: [DONE]\n\n"
-
-
-# ============================================================
-# 模型加载与启动
-# ============================================================
-
-
-def load_model(config_path: str, model_path: str, tokenizer_path: str):
-    """加载模型到全局变量"""
-    global model, tokenizer, device, model_info, model_name
-
-    device = get_device()
+def _load_runtime(config_path: str, model_path: str, tokenizer_path: str | None) -> None:
+    """初始化模型 + tokenizer 到 _ServerState"""
+    import torch
+    import yaml
+    from src.model.config import ModelConfig
+    from src.model.gpt import GPT
+    from src.training.trainer_utils import get_device, load_checkpoint
+    from scripts.train import load_tokenizer
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-
     model_config = ModelConfig(**config["model"])
-
-    # 加载分词器
-    tokenizer = ClearMindTokenizer(tokenizer_path)
+    tokenizer = load_tokenizer(config, tokenizer_path)
     if tokenizer.vocab_size != model_config.vocab_size:
         model_config.vocab_size = tokenizer.vocab_size
 
-    # 加载模型
+    device = get_device()
     model = GPT(model_config).to(device)
     load_checkpoint(model, model_path, device=device)
     model.eval()
 
-    param_info = model.count_parameters()
+    _ServerState.model = model
+    _ServerState.tokenizer = tokenizer
+    _ServerState.device = device
+    _ServerState.config_path = config_path
+    # release 块中的 model_name 优先；否则文件名
+    release = config.get("release", {})
+    _ServerState.model_id = release.get("model_name") or Path(model_path).parent.parent.name or "ClearMind"
 
-    # 根据模型路径推断阶段
-    if "dpo" in model_path:
-        stage = "DPO (偏好对齐)"
-    elif "sft" in model_path:
-        stage = "SFT (指令微调)"
-    else:
-        stage = "Pretrain (预训练)"
+    print(f"✅ 模型加载完成: {model_path}")
+    print(f"   tokenizer: {tokenizer}")
+    print(f"   device: {device}")
+    print(f"   model_id: {_ServerState.model_id}")
 
-    model_info = {
-        "model_name": "ClearMind",
-        "stage": stage,
-        "parameters": f"{param_info['total_millions']:.1f}M",
-        "d_model": model_config.d_model,
-        "n_layers": model_config.n_layers,
-        "n_heads": model_config.n_heads,
-        "vocab_size": model_config.vocab_size,
-        "max_seq_len": model_config.max_seq_len,
-        "device": str(device),
-        "checkpoint": model_path,
-    }
 
-    print(f"\n✅ 模型加载完成!")
-    print(f"   模型: ClearMind ({param_info['total_millions']:.1f}M)")
-    print(f"   阶段: {stage}")
-    print(f"   设备: {device}")
+# ============================================================
+# 生成核心
+# ============================================================
+
+
+def _build_prompt_ids(messages: list[dict], tools=None, open_thinking=False):
+    """messages → token ids"""
+    tk = _ServerState.tokenizer
+    text = tk.apply_chat_template(
+        messages,
+        tools=tools,
+        add_generation_prompt=True,
+        tokenize=False,
+        open_thinking=open_thinking,
+    )
+    return tk.encode(text, add_bos=False, add_eos=False)
+
+
+def _generate_full(messages, *, max_tokens, temperature, top_p, top_k, repetition_penalty, tools, open_thinking) -> tuple[str, int, int]:
+    """非流式生成。返回 (text, prompt_token_count, completion_token_count)"""
+    import torch
+    from src.inference.generate import generate
+
+    tk = _ServerState.tokenizer
+    model = _ServerState.model
+    device = _ServerState.device
+
+    prompt_ids = _build_prompt_ids(messages, tools, open_thinking)
+    prompt_len = len(prompt_ids)
+    input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=device)
+    output_ids = generate(
+        model=model,
+        input_ids=input_ids,
+        max_new_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k or 0,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        eos_token_id=tk.eos_id,
+    )
+    new_ids = output_ids[0, prompt_len:].tolist()
+    if tk.eos_id in new_ids:
+        new_ids = new_ids[: new_ids.index(tk.eos_id)]
+    text = tk.decode(new_ids, skip_special_tokens=True)
+    return text, prompt_len, len(new_ids)
+
+
+def _generate_stream_chunks(messages, *, max_tokens, temperature, top_p, top_k, repetition_penalty, tools, open_thinking):
+    """逐 token 生成（简化版：用单步前向 + KV cache 一步步出 token）
+
+    实现策略：调用一次 model.generate()，但每步追加一个 token 后 yield 增量字符串。
+    这里用最简单的方式：先全量生成，再分块下发（不是真正的 token-by-token 流式，
+    但对客户端协议层来说看起来一样）。
+    """
+    text, prompt_len, completion_len = _generate_full(
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        tools=tools,
+        open_thinking=open_thinking,
+    )
+    # 按字符切块（每 4 字符一片）模拟流式
+    chunk_size = 4
+    for i in range(0, len(text), chunk_size):
+        yield text[i : i + chunk_size]
+    # 末尾返回 token 计数信息
+    yield {"_done": True, "prompt": prompt_len, "completion": completion_len}
+
+
+# ============================================================
+# FastAPI app
+# ============================================================
+
+
+def build_app():
+    try:
+        from fastapi import FastAPI, HTTPException
+        from fastapi.responses import StreamingResponse
+        from pydantic import BaseModel, Field
+    except ImportError as e:
+        print(f"❌ 缺少依赖: {e}")
+        print("   请运行: pip install fastapi uvicorn pydantic")
+        sys.exit(1)
+
+    app = FastAPI(title="ClearMind API", version="1.0")
+
+    class Message(BaseModel):
+        role: str
+        content: str
+        # 可选 minimind / Qwen 风格扩展
+        reasoning_content: str | None = None
+        tools: str | None = None
+        tool_calls: list | None = None
+
+    class ChatCompletionRequest(BaseModel):
+        model: str | None = None
+        messages: list[Message]
+        max_tokens: int = Field(default=512, ge=1, le=8192)
+        temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+        top_p: float = Field(default=0.9, ge=0.0, le=1.0)
+        top_k: int = Field(default=50, ge=0)
+        repetition_penalty: float = Field(default=1.1, ge=0.0)
+        stream: bool = False
+        tools: list | None = None
+        open_thinking: bool = False
+
+    class CompletionRequest(BaseModel):
+        model: str | None = None
+        prompt: str
+        max_tokens: int = 256
+        temperature: float = 0.7
+        top_p: float = 0.9
+        top_k: int = 50
+        repetition_penalty: float = 1.1
+        stream: bool = False
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "ready": _ServerState.is_ready()}
+
+    @app.get("/v1/models")
+    async def list_models():
+        if not _ServerState.is_ready():
+            raise HTTPException(503, "Model not loaded")
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "id": _ServerState.model_id,
+                    "object": "model",
+                    "owned_by": "clearmind",
+                }
+            ],
+        }
+
+    def _make_response(content: str, prompt_tokens: int, completion_tokens: int) -> dict:
+        return {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": _ServerState.model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+        }
+
+    @app.post("/v1/chat/completions")
+    async def chat_completions(req: ChatCompletionRequest):
+        if not _ServerState.is_ready():
+            raise HTTPException(503, "Model not loaded")
+
+        # pydantic Message → dict
+        messages = [m.model_dump(exclude_none=True) for m in req.messages]
+
+        # 流式
+        if req.stream:
+            chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+            created = int(time.time())
+
+            async def event_stream() -> AsyncGenerator[str, None]:
+                # 发送 role 开头
+                yield "data: " + json.dumps({
+                    "id": chat_id, "object": "chat.completion.chunk",
+                    "created": created, "model": _ServerState.model_id,
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
+                }, ensure_ascii=False) + "\n\n"
+
+                for chunk in _generate_stream_chunks(
+                    messages,
+                    max_tokens=req.max_tokens,
+                    temperature=req.temperature,
+                    top_p=req.top_p,
+                    top_k=req.top_k,
+                    repetition_penalty=req.repetition_penalty,
+                    tools=req.tools,
+                    open_thinking=req.open_thinking,
+                ):
+                    if isinstance(chunk, dict) and chunk.get("_done"):
+                        # 终止 chunk
+                        yield "data: " + json.dumps({
+                            "id": chat_id, "object": "chat.completion.chunk",
+                            "created": created, "model": _ServerState.model_id,
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        }, ensure_ascii=False) + "\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+                    yield "data: " + json.dumps({
+                        "id": chat_id, "object": "chat.completion.chunk",
+                        "created": created, "model": _ServerState.model_id,
+                        "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None}],
+                    }, ensure_ascii=False) + "\n\n"
+
+            return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+        # 非流式
+        text, prompt_t, completion_t = _generate_full(
+            messages,
+            max_tokens=req.max_tokens,
+            temperature=req.temperature,
+            top_p=req.top_p,
+            top_k=req.top_k,
+            repetition_penalty=req.repetition_penalty,
+            tools=req.tools,
+            open_thinking=req.open_thinking,
+        )
+        return _make_response(text, prompt_t, completion_t)
+
+    @app.post("/v1/completions")
+    async def completions(req: CompletionRequest):
+        if not _ServerState.is_ready():
+            raise HTTPException(503, "Model not loaded")
+        # 走非 chat 路径：直接 encode prompt → generate
+        from src.inference.generate import generate_text
+
+        text = generate_text(
+            model=_ServerState.model,
+            tokenizer=_ServerState.tokenizer,
+            prompt=req.prompt,
+            max_new_tokens=req.max_tokens,
+            temperature=req.temperature,
+            top_k=req.top_k,
+            top_p=req.top_p,
+            repetition_penalty=req.repetition_penalty,
+            device=_ServerState.device,
+            add_bos=True,  # 续写场景用 BOS
+            return_only_new=True,
+        )
+        return {
+            "id": f"cmpl-{uuid.uuid4().hex[:24]}",
+            "object": "text_completion",
+            "created": int(time.time()),
+            "model": _ServerState.model_id,
+            "choices": [{"index": 0, "text": text, "finish_reason": "stop"}],
+        }
+
+    return app
+
+
+# ============================================================
+# 入口
+# ============================================================
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ClearMind API 服务")
-    parser.add_argument("--config", type=str, default="configs/small.yaml")
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="outputs/dpo/final.pth",
-        help="模型 checkpoint 路径",
-    )
-    parser.add_argument(
-        "--tokenizer", type=str, default="outputs/tokenizer/tokenizer.model"
-    )
-    parser.add_argument("--host", type=str, default="0.0.0.0")
+    parser = argparse.ArgumentParser(description="ClearMind OpenAI 兼容 API")
+    parser.add_argument("--config", default="configs/main.yaml")
+    parser.add_argument("--model", default=None, help="checkpoint 路径")
+    parser.add_argument("--tokenizer", default=None)
+    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    # 检查文件
-    if not os.path.exists(args.tokenizer):
-        print(f"❌ 分词器不存在: {args.tokenizer}")
+    # 自动找模型
+    model_path = args.model
+    if model_path is None:
+        for cand in ("outputs/dpo/final.pth", "outputs/sft/final.pth"):
+            if os.path.exists(cand):
+                model_path = cand
+                break
+    if model_path is None or not os.path.exists(model_path):
+        print(f"❌ 找不到模型: {model_path}")
         sys.exit(1)
 
-    if not os.path.exists(args.model):
-        # 自动查找
-        for path in [
-            "outputs/dpo/final.pth",
-            "outputs/sft/final.pth",
-            "outputs/pretrain/final.pth",
-        ]:
-            if os.path.exists(path):
-                args.model = path
-                break
-        else:
-            print("❌ 未找到任何 checkpoint，请先完成训练")
-            sys.exit(1)
+    _load_runtime(args.config, model_path, args.tokenizer)
 
-    # 加载模型
-    load_model(args.config, args.model, args.tokenizer)
+    try:
+        import uvicorn
+    except ImportError:
+        print("❌ 请安装: pip install uvicorn fastapi")
+        sys.exit(1)
 
-    # 启动服务
-    import uvicorn
-
-    print(f"\n🚀 启动 API 服务: http://{args.host}:{args.port}")
-    print(f"   文档: http://{args.host}:{args.port}/docs")
-    print(f"   健康检查: http://{args.host}:{args.port}/health")
-
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    app = build_app()
+    print(f"\n🚀 启动 API 服务于 http://{args.host}:{args.port}")
+    print("    OpenAI 兼容 endpoints:")
+    print("      POST /v1/chat/completions")
+    print("      POST /v1/completions")
+    print("      GET  /v1/models")
+    print("      GET  /health")
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

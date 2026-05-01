@@ -146,24 +146,37 @@ def generate_text(
     temperature: float = 0.7,
     top_k: int = 50,
     top_p: float = 0.9,
+    repetition_penalty: float = 1.1,
     device: torch.device = None,
+    add_bos: bool = False,
+    return_only_new: bool = True,
+    skip_special_tokens: bool = True,
 ) -> str:
-    """从文本 prompt 生成文本回复
+    """从纯文本 prompt 生成文本（不走 chat_template）
+
+    适合：续写预训练模型的句子、Pretrain 阶段冒烟。
+    多轮对话场景请使用 :func:`chat_loop` 或自行用 ``apply_chat_template``
+    渲染后再调用 :func:`generate`。
 
     Args:
-        model:     GPT 模型
-        tokenizer: 分词器
-        prompt:    输入文本
-        其他参数同 generate()
-
-    Returns:
-        生成的文本
+        model:               GPT 模型
+        tokenizer:           分词器（HFTokenizer 或 ClearMindTokenizer）
+        prompt:              输入文本
+        max_new_tokens:      最多生成的 token 数
+        temperature/top_k/top_p/repetition_penalty: 采样参数
+        device:              设备（None = model 所在设备）
+        add_bos:             是否在 prompt 开头插入 BOS。
+                             *minimind tokenizer 默认行为*：apply_chat_template 已含 BOS，
+                             纯文本续写场景才设 ``True``。
+        return_only_new:     只返回新生成的 tokens（不含 prompt）
+        skip_special_tokens: decode 时跳过 ``<|im_start|>`` / ``<|im_end|>`` 等
     """
     if device is None:
         device = next(model.parameters()).device
 
-    # Encode prompt
-    input_ids = tokenizer.encode(prompt, add_bos=True, add_eos=False)
+    # Encode prompt（默认不加 BOS，避免与 chat_template 冲突）
+    input_ids = tokenizer.encode(prompt, add_bos=add_bos, add_eos=False)
+    prompt_len = len(input_ids)
     input_ids = torch.tensor([input_ids], dtype=torch.long, device=device)
 
     # Generate
@@ -174,11 +187,78 @@ def generate_text(
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
+        repetition_penalty=repetition_penalty,
         eos_token_id=tokenizer.eos_id,
     )
 
-    # Decode (只取新生成的部分)
-    generated_ids = output_ids[0].tolist()
-    text = tokenizer.decode(generated_ids)
+    # 决定 decode 范围
+    full_ids = output_ids[0].tolist()
+    new_ids = full_ids[prompt_len:] if return_only_new else full_ids
+    # 截断到第一个 EOS
+    if tokenizer.eos_id in new_ids:
+        new_ids = new_ids[: new_ids.index(tokenizer.eos_id)]
 
+    # decode（兼容 ClearMindTokenizer / HFTokenizer 接口差异）
+    try:
+        text = tokenizer.decode(new_ids, skip_special_tokens=skip_special_tokens)
+    except TypeError:
+        # ClearMindTokenizer.decode 不接受 skip_special_tokens
+        text = tokenizer.decode(new_ids)
     return text
+
+
+def generate_chat(
+    model,
+    tokenizer,
+    messages: list[dict],
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    top_k: int = 50,
+    top_p: float = 0.9,
+    repetition_penalty: float = 1.1,
+    device: torch.device = None,
+    open_thinking: bool = False,
+    tools: list[dict] | None = None,
+) -> str:
+    """从 messages 生成 assistant 回复（走 chat_template）
+
+    自动调用 ``tokenizer.apply_chat_template(messages, add_generation_prompt=True)``
+    渲染对话历史，模型只生成 assistant 段。
+
+    Args:
+        messages:        ``[{"role": "system|user|assistant|tool", "content": "..."}, ...]``
+        open_thinking:   是否在 prompt 末尾插入 ``<think>\\n``，引导模型先推理
+        tools:           可选 OpenAI 风格工具定义（用于 tool-use）
+        其它参数同 :func:`generate_text`
+
+    Returns:
+        assistant 回复字符串（已去除 ``<|im_end|>`` 等特殊 token）
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    if not hasattr(tokenizer, "apply_chat_template"):
+        raise TypeError(
+            "generate_chat 要求 tokenizer 支持 apply_chat_template，请用 HFTokenizer。"
+        )
+
+    prompt = tokenizer.apply_chat_template(
+        messages,
+        tools=tools,
+        add_generation_prompt=True,
+        tokenize=False,
+        open_thinking=open_thinking,
+    )
+    return generate_text(
+        model=model,
+        tokenizer=tokenizer,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        device=device,
+        add_bos=False,                 # apply_chat_template 已含 BOS
+        return_only_new=True,
+        skip_special_tokens=True,
+    )

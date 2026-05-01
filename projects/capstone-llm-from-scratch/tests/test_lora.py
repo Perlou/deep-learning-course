@@ -121,13 +121,13 @@ class TestApplyLoRA:
 class TestMergeLoRA:
     """测试 merge_lora 函数"""
 
-    def test_merge_restores_structure(self, tiny_model):
+    def test_merge_restores_structure(self, tiny_model, tiny_config):
         """merge 后 LoRALinear 应仍存在但权重已合并"""
         apply_lora(tiny_model, rank=4, target_modules=["w_q", "w_v"])
         merge_lora(tiny_model)
 
         # 模型应仍可正常推理
-        x = torch.randint(0, 2000, (1, 4))
+        x = torch.randint(0, tiny_config.vocab_size, (1, 4))
         with torch.no_grad():
             logits, _, _ = tiny_model(x)
-        assert logits.shape[-1] == 2000
+        assert logits.shape[-1] == tiny_config.vocab_size

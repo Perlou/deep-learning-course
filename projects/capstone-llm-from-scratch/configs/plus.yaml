@@ -1,0 +1,104 @@
+# ClearMind-Plus 旗舰配置（约 478M 参数，dense）
+# 单卡 A100 / A800 80GB bf16 训练，目标两天内完成 Pretrain + SFT + DPO 并发布
+# 单 token 计算量约为 minimind-3-moe (198M-A64M) 激活参数的 ~7×，
+# 用 dense 路线超越 sparse 同尺寸。
+
+model:
+  d_model: 1280
+  n_heads: 16          # head_dim = 80
+  n_kv_heads: 4        # GQA 4:1
+  n_layers: 24
+  d_ff: 4032           # ⌈1280·π/64⌉·64
+  vocab_size: 6400
+  max_seq_len: 1024
+  dropout: 0.0
+  norm_eps: 1.0e-6
+
+tokenizer:
+  type: hf
+  path: tokenizer/minimind
+  bos_token_id: 1
+  eos_token_id: 2
+  pad_token_id: 0
+
+# ===== Pretrain =====
+# 假设数据 ~1.5B tokens（minimind 完整 pretrain_t2t.jsonl）
+# batch_size=16, accumulation=8 → effective batch = 128
+# 16 * 1024 = 16384 tokens/micro-step
+# Chinchilla-friendly：~10B tokens 总曝光（~6 epoch over 1.5B）
+# 单卡 A100 bf16 估算：~50k tok/s，10B tokens ≈ 56h（超出预算）
+# 折中：跑 ~5B tokens (~28h)，约 305000 micro-step → 38000 optimizer step
+pretrain:
+  batch_size: 16
+  gradient_accumulation: 8                       # effective batch = 128
+  max_steps: 38000                               # ≈ 5B tokens 曝光
+  lr: 3.0e-4
+  min_lr: 3.0e-5
+  weight_decay: 0.1
+  warmup_steps: 2000
+  save_every: 2000
+  eval_every: 500
+  dtype: bfloat16
+  log_every: 50
+  num_workers: 8
+  pretrain_mode: per_sample                      # 与 minimind 对齐
+  use_tensorboard: true
+  val_ratio: 0.01                                # 大数据 val 取 1% 即可
+  # Phase 4 工程化加速（推荐 plus 全开）
+  use_compile: true                              # +20-40% 训练吞吐（CUDA only）
+  compile_mode: default                          # default / reduce-overhead / max-autotune
+  use_fused_adamw: true                          # +10-15% optimizer step 速度
+  use_gradient_checkpointing: true               # 显存↓30-50%，吞吐↓25%（24 层模型必开）
+  # 可选实验跟踪（需先 pip install wandb 或 swanlab）
+  use_wandb: false
+  wandb_backend: swanlab                         # swanlab / wandb
+  wandb_project: "ClearMind-Plus"
+
+sft:
+  batch_size: 8
+  gradient_accumulation: 8                       # effective batch = 64
+  epochs: 2
+  lr: 1.0e-5
+  min_lr: 1.0e-6
+  weight_decay: 0.01
+  dtype: bfloat16
+  log_every: 50
+  patience: 3
+  num_workers: 8
+  use_tensorboard: true
+  system_prompt_ratio: 0.2
+  empty_think_strip_ratio: 0.8
+  val_ratio: 0.02
+
+dpo:
+  batch_size: 4
+  gradient_accumulation: 8                       # effective batch = 32
+  epochs: 1
+  lr: 1.0e-6                                     # 比小模型再低一档，防止遗忘
+  beta: 0.1
+  dtype: bfloat16
+  log_every: 20
+  patience: 3
+  num_workers: 8
+  use_tensorboard: true
+  val_ratio: 0.05
+
+generation:
+  max_new_tokens: 1024
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.1
+
+# ===== 发布元信息（HF/ModelScope 用）=====
+release:
+  model_name: ClearMind-Plus
+  display_name: "ClearMind-Plus (478M)"
+  family: "ClearMind"
+  size_label: "478M"
+  tagline: "Dense 478M LLM trained from scratch, surpasses MiniMind-3-MoE on single-token compute"
+  license: apache-2.0
+  hf_repo: "<your_hf_username>/ClearMind-Plus"
+  modelscope_repo: "<your_modelscope_username>/ClearMind-Plus"
+  base_model: ClearMind-Plus-Pretrain
+  intended_use: "通用对话、知识问答、代码、思考链推理"

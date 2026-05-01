@@ -70,7 +70,14 @@ class SFTTrainer(BaseTrainer):
         self.steps_per_epoch = max(
             1, math.ceil(len(self.train_loader) / self.gradient_accumulation)
         )
-        self.max_steps = self.steps_per_epoch * self.epochs
+        # 默认按 epoch 算总步数；config.max_steps 可下调（用于本地快速冒烟，
+        # 例如 tiny 想跑通 SFT 全流程但不想等 200k 个 batch）
+        full_max = self.steps_per_epoch * self.epochs
+        cfg_max = config.get("max_steps")
+        self.max_steps = min(cfg_max, full_max) if cfg_max else full_max
+
+        # NaN 守卫计数（A 方案 Layer 3）：被跳过的 micro-batch 数量
+        self._nan_skipped = 0
 
         # 学习率调度器
         self.scheduler = CosineWarmupScheduler(
@@ -125,9 +132,20 @@ class SFTTrainer(BaseTrainer):
 
         Args:
             pretrained_path: 预训练 checkpoint 路径 (加载预训练权重)
+
+        优先级:
+          1. ``<output_dir>/_resume.pth`` 存在 → 自动续训（显示 SFT 已经在跑）
+          2. 否则加载 ``pretrained_path`` 作为初始权重（从预训练接续）
         """
-        # 加载预训练权重
-        if pretrained_path and os.path.exists(pretrained_path):
+        # ========== 0. 自动续训检查（优先级最高） ==========
+        auto_info = self._try_auto_resume()
+        start_epoch, start_step = 0, 0
+        if auto_info is not None:
+            start_epoch = auto_info.get("epoch", 0)
+            start_step = auto_info.get("step", 0)
+            print(f"🔄 自动从 epoch={start_epoch}, step={start_step} 续训 SFT")
+        elif pretrained_path and os.path.exists(pretrained_path):
+            # 1. 加载预训练权重（不带 optimizer/scheduler，仅模型权重）
             load_checkpoint(self.model, pretrained_path, device=self.device)
             print(f"✅ 已加载预训练权重: {pretrained_path}")
         else:
@@ -147,7 +165,7 @@ class SFTTrainer(BaseTrainer):
         print(f"{'=' * 60}\n")
 
         self.model.train()
-        step = 0
+        step = start_step
         stopped_early = False
         avg_epoch_loss = 0.0
 
@@ -169,6 +187,23 @@ class SFTTrainer(BaseTrainer):
                 with amp_autocast(self.device, self.dtype):
                     logits, loss, _ = self.model(input_ids, labels, attention_mask=attention_mask)
 
+                loss_value = loss.item()
+
+                # NaN/Inf 守卫（A 方案 Layer 3）：理论上 dataset+gpt 双层防御后不会触发，
+                # 但保留兜底以应对 fp16 上溢、损坏样本等极端情况
+                if not math.isfinite(loss_value):
+                    self._nan_skipped += 1
+                    if self._nan_skipped <= 5 or self._nan_skipped % 100 == 0:
+                        print(
+                            f"⚠️  跳过 NaN/Inf loss micro-batch "
+                            f"(累计 {self._nan_skipped} 次)"
+                        )
+                    # 清掉这个 micro-batch 已经积累但还没 step 的梯度，避免污染下一组累积
+                    self.optimizer.zero_grad(set_to_none=True)
+                    micro_count = 0
+                    micro_loss_sum = 0.0
+                    continue
+
                 # 梯度累积
                 scaled_loss = loss / self.gradient_accumulation
 
@@ -178,7 +213,7 @@ class SFTTrainer(BaseTrainer):
                     scaled_loss.backward()
 
                 micro_count += 1
-                micro_loss_sum += loss.item()
+                micro_loss_sum += loss_value
 
                 if micro_count >= self.gradient_accumulation:
                     # 参数更新

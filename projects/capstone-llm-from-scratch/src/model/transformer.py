@@ -67,6 +67,8 @@ class TransformerBlock(nn.Module):
         mask: torch.Tensor = None,
         kv_cache: tuple[torch.Tensor, torch.Tensor] | None = None,
         use_cache: bool = False,
+        rope_cos: torch.Tensor | None = None,
+        rope_sin: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         """
         Args:
@@ -74,6 +76,8 @@ class TransformerBlock(nn.Module):
             mask:      注意力 causal mask
             kv_cache:  该层的 KV cache (推理用)
             use_cache: 是否返回更新后的 KV cache
+            rope_cos:  GPT 顶层共享的 RoPE cos buffer
+            rope_sin:  GPT 顶层共享的 RoPE sin buffer
 
         Returns:
             output:       输出张量 [batch, seq_len, d_model]
@@ -82,7 +86,12 @@ class TransformerBlock(nn.Module):
         # Attention block with residual connection
         # h = x + Attention(RMSNorm(x))
         attn_out, new_kv_cache = self.attention(
-            self.attn_norm(x), mask, kv_cache=kv_cache, use_cache=use_cache
+            self.attn_norm(x),
+            mask,
+            kv_cache=kv_cache,
+            use_cache=use_cache,
+            rope_cos=rope_cos,
+            rope_sin=rope_sin,
         )
         h = x + attn_out
 

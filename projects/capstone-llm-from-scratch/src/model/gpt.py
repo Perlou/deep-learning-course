@@ -65,15 +65,52 @@ class GPT(nn.Module):
         # 共享权重能减少参数量且提升效果 (参考 GPT-2 论文)
         self.token_embedding.weight = self.lm_head.weight
 
+        # ========== RoPE 频率（顶层共享 buffer，所有 attention 共用）==========
+        # 旧实现：每个 Attention 各自 register_buffer cos/sin → n_layers 份重复
+        # 新实现：顶层 register 一次，forward 时透传给每个 Block → Attention
+        # state_dict 中也只有一份 cos/sin（persistent=False 时不入 state_dict）
+        from .rope import precompute_rope_frequencies
+
+        rope_cos, rope_sin = precompute_rope_frequencies(
+            config.head_dim,
+            config.max_seq_len,
+            base=config.rope_theta,            # 默认 1e6（minimind / Qwen3 对齐）
+            rope_scaling=config.rope_scaling,  # YaRN 长上下文（None = 关闭）
+        )
+        # persistent=False：不计入 state_dict（forward 时再生成更省磁盘）
+        # 但保持 buffer 行为以便 .to(device) 时自动迁移
+        self.register_buffer("rope_cos", rope_cos, persistent=False)
+        self.register_buffer("rope_sin", rope_sin, persistent=False)
+
         # ========== Causal Mask ==========
-        # 上三角矩阵, 防止 token 看到未来的信息
-        # 注册为 buffer: 不参与训练, 但跟随模型设备
-        mask = torch.full((config.max_seq_len, config.max_seq_len), float("-inf"))
-        mask = torch.triu(mask, diagonal=1)
-        self.register_buffer("causal_mask", mask)
+        # 不再预分配 (max_seq_len, max_seq_len) 的全局 buffer：
+        #   - SDPA `is_causal=True` 路径根本不消费 mask
+        #   - SFT/DPO 走的"padding mask + causal mask"路径只需要 (seq_len, seq_len)
+        #     大小的临时 mask，按 forward 时的实际 seq_len 动态构造更省（不污染
+        #     state_dict、不占用 max_seq_len² 显存）
+        # 该改动相比原实现：
+        #   small (max_seq_len=1024)  省 4 MB / large (2048+)  省 16 MB+
+        #   state_dict 中不再含 causal_mask，发布到 HF 时模型卡更干净
+
+        # ========== Activation Checkpointing（Phase 4） ==========
+        # 用 torch.utils.checkpoint 把每个 TransformerBlock 包成"前向时不存激活，
+        # 反向时重算"模式：显存峰值降 30-50%（深层模型尤其明显），代价是
+        # ~25% 训练吞吐下降。对 plus（24 层）+ 长序列特别有用。
+        # 通过 yaml.use_gradient_checkpointing=true 或 model.gradient_checkpointing_enable() 启用。
+        self.gradient_checkpointing = False
 
         # ========== 初始化权重 ==========
         self.apply(self._init_weights)
+        # 残差路径输出 proj 的 1/√(2L) 缩放（GPT-2/Llama 标准做法）
+        # 详见 _scale_residual_proj 注释
+        self._scale_residual_proj()
+
+    def gradient_checkpointing_enable(self) -> None:
+        """打开 activation checkpointing（与 HF Trainer 兼容的 API）"""
+        self.gradient_checkpointing = True
+
+    def gradient_checkpointing_disable(self) -> None:
+        self.gradient_checkpointing = False
 
     def _init_weights(self, module: nn.Module):
         """Xavier/He 风格的权重初始化
@@ -89,6 +126,32 @@ class GPT(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+    def _scale_residual_proj(self):
+        """对每个 transformer block 的"残差路径输出 proj"权重再除以 √(2·n_layers)
+
+        理论依据（Karpathy ``minGPT``、GPT-2/3 paper、Llama 实现都做了这一步）：
+          - Pre-Norm transformer 中，每层有 2 个残差连接（attn + ffn）
+          - 残差累积时方差按 √n_layers 增长 → 深层激活越来越大 → 训练不稳定
+          - 把每个残差路径"出口"层的初始权重缩放 1/√(2·n_layers)
+          - 让残差累积后的方差与初始保持一致
+
+        具体哪些层是"残差出口"：
+          - Attention 的 output projection (``w_o``)
+          - FFN 的 down projection (``w_down``)
+
+        这是 minimind 没有做的改进，是 ClearMind 反超 minimind 的关键差异化点之一。
+        """
+        scale = 1.0 / (2 * self.config.n_layers) ** 0.5
+        for layer in self.layers:
+            # Attention output proj
+            if hasattr(layer, "attention") and hasattr(layer.attention, "w_o"):
+                with torch.no_grad():
+                    layer.attention.w_o.weight.mul_(scale)
+            # FFN down proj
+            if hasattr(layer, "feedforward") and hasattr(layer.feedforward, "w_down"):
+                with torch.no_grad():
+                    layer.feedforward.w_down.weight.mul_(scale)
 
     def forward(
         self,
@@ -120,20 +183,66 @@ class GPT(nn.Module):
 
         # 构建 attention mask: 将 2D padding mask 与 causal mask 合并
         if attention_mask is not None:
-            # [batch, 1, 1, seq_len] — padding 位置为 -inf
-            pad_mask = (1.0 - attention_mask.unsqueeze(1).unsqueeze(2).float()) * float("-inf")
-            # 与 causal mask 合并: [seq_len, seq_len] + [batch, 1, 1, seq_len]
-            combined_mask = self.causal_mask[:seq_len, :seq_len].unsqueeze(0) + pad_mask
+            # [batch, seq_len] (1=valid, 0=pad) → [batch, 1, 1, seq_len] additive mask
+            # 关键陷阱：旧实现 `(1.0 - mask) * -inf` 在 valid 位置产生 0*inf=NaN，
+            # 必须用 masked_fill / where 安全地把 pad 填 -inf、valid 填 0
+            pad_mask = torch.zeros(
+                attention_mask.shape[0], 1, 1, attention_mask.shape[1],
+                dtype=torch.float32,
+                device=attention_mask.device,
+            )
+            pad_mask = pad_mask.masked_fill(
+                attention_mask.unsqueeze(1).unsqueeze(2) == 0,
+                float("-inf"),
+            )
+            # 动态构造 (seq_len, seq_len) 的 causal mask（按需大小，不预分配 max_seq_len²）
+            causal_mask = torch.triu(
+                torch.full((seq_len, seq_len), float("-inf"),
+                           dtype=torch.float32, device=input_ids.device),
+                diagonal=1,
+            )
+            # 合并: [seq_len, seq_len] + [batch, 1, 1, seq_len]
+            combined_mask = causal_mask.unsqueeze(0) + pad_mask
         else:
-            combined_mask = self.causal_mask
+            # 无 padding：让 attention 走 SDPA `is_causal=True` 内部路径（无需显式 mask）
+            combined_mask = None
 
-        # N × Transformer Block (带 KV Cache 透传)
+        # N × Transformer Block (带 KV Cache 透传 + RoPE buffer 共享)
         new_kv_caches = [] if use_cache else None
+        # activation checkpointing 仅在训练时 + 不用 KV cache 时生效
+        ckpt_active = (
+            self.gradient_checkpointing
+            and self.training
+            and not use_cache
+        )
         for i, layer in enumerate(self.layers):
             layer_cache = kv_caches[i] if kv_caches is not None else None
-            x, new_cache = layer(
-                x, mask=combined_mask, kv_cache=layer_cache, use_cache=use_cache
-            )
+            if ckpt_active:
+                # 用 torch.utils.checkpoint 包裹：前向不存中间激活，反向时重算
+                # 注：checkpoint 不支持 keyword-only 参数 + 可变返回值，所以用 closure
+                from torch.utils.checkpoint import checkpoint as _ckpt
+
+                def _layer_fwd(x_in, mask_in, rope_cos_in, rope_sin_in, _layer=layer):
+                    out, _ = _layer(
+                        x_in, mask=mask_in, kv_cache=None, use_cache=False,
+                        rope_cos=rope_cos_in, rope_sin=rope_sin_in,
+                    )
+                    return out
+
+                x = _ckpt(
+                    _layer_fwd, x, combined_mask, self.rope_cos, self.rope_sin,
+                    use_reentrant=False,
+                )
+                new_cache = None
+            else:
+                x, new_cache = layer(
+                    x,
+                    mask=combined_mask,
+                    kv_cache=layer_cache,
+                    use_cache=use_cache,
+                    rope_cos=self.rope_cos,
+                    rope_sin=self.rope_sin,
+                )
             if use_cache:
                 new_kv_caches.append(new_cache)
 
@@ -146,13 +255,21 @@ class GPT(nn.Module):
         # 计算 loss (如果提供了 targets)
         loss = None
         if targets is not None:
-            # Cross-entropy loss
-            # logits: [batch × seq, vocab] vs targets: [batch × seq]
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                targets.view(-1),
-                ignore_index=-100,  # padding token 不计算 loss
+            # 安全聚合（A 方案 Layer 2）：用 reduction='sum' + clamp(valid_count, min=1)
+            # 替代默认 reduction='mean'，避免"整个 batch 全是 -100 (assistant 段被尾部
+            # 截断砍光) 时分母 0 → NaN"污染 epoch 累加器的经典 SFT 坑。
+            #   - 全 -100：sum=0、valid=0→clamp=1 → loss=0.0（无梯度，对训练无害）
+            #   - 正常 batch：与 reduction='mean' 数值完全等价
+            flat_logits = logits.view(-1, logits.size(-1))
+            flat_targets = targets.view(-1)
+            loss_sum = F.cross_entropy(
+                flat_logits,
+                flat_targets,
+                ignore_index=-100,
+                reduction="sum",
             )
+            valid_count = (flat_targets != -100).sum().clamp(min=1)
+            loss = loss_sum / valid_count
 
         return logits, loss, new_kv_caches
 

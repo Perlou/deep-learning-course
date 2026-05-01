@@ -24,7 +24,6 @@ DPO 核心思想:
   Pre-training → SFT → DPO
 """
 
-import copy
 import math
 import os
 
@@ -145,6 +144,42 @@ class DPOTrainer(BaseTrainer):
         mask = (shift_labels != -100).float()
         token_log_probs = token_log_probs * mask
 
+        return token_log_probs.sum(-1)
+
+    def _compute_log_probs_pair(
+        self,
+        model: nn.Module,
+        chosen_ids: torch.Tensor,
+        chosen_labels: torch.Tensor,
+        rejected_ids: torch.Tensor,
+        rejected_labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """单次 forward 同时计算 chosen + rejected 的 log_probs
+
+        将 chosen 和 rejected batch 拼接成 ``[2B, seq_len]``，一次 forward 计算 logits，
+        再切回两份。相比旧实现两次独立 forward，**省一半时间**且节省 KV 重计算。
+
+        参考：minimind ``train_dpo.py`` 的 ``torch.cat([x_chosen, x_rejected])`` 方案。
+        """
+        # 拼接（沿 batch 维）
+        cat_ids = torch.cat([chosen_ids, rejected_ids], dim=0)
+        cat_labels = torch.cat([chosen_labels, rejected_labels], dim=0)
+        cat_mask = (cat_ids != self.pad_token_id).long()
+
+        logits, _, _ = model(cat_ids, attention_mask=cat_mask)
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = cat_labels[:, 1:].contiguous()
+        log_probs = F.log_softmax(shift_logits, dim=-1)
+        token_log_probs = log_probs.gather(
+            dim=-1, index=shift_labels.unsqueeze(-1).clamp(min=0)
+        ).squeeze(-1)
+        mask = (shift_labels != -100).float()
+        token_log_probs = token_log_probs * mask
+        per_sample = token_log_probs.sum(-1)  # [2B]
+
+        # 切分回 chosen / rejected
+        B = chosen_ids.shape[0]
+        return per_sample[:B], per_sample[B:]
         # 求和 (每个样本的总对数概率)
         return token_log_probs.sum(-1)
 
@@ -202,17 +237,11 @@ class DPOTrainer(BaseTrainer):
             rejected_labels = batch["rejected_labels"].to(self.device)
 
             with amp_autocast(self.device, self.dtype):
-                policy_chosen_logps = self._compute_log_probs(
-                    self.model, chosen_ids, chosen_labels
+                policy_chosen_logps, policy_rejected_logps = self._compute_log_probs_pair(
+                    self.model, chosen_ids, chosen_labels, rejected_ids, rejected_labels
                 )
-                policy_rejected_logps = self._compute_log_probs(
-                    self.model, rejected_ids, rejected_labels
-                )
-                ref_chosen_logps = self._compute_log_probs(
-                    self.ref_model, chosen_ids, chosen_labels
-                )
-                ref_rejected_logps = self._compute_log_probs(
-                    self.ref_model, rejected_ids, rejected_labels
+                ref_chosen_logps, ref_rejected_logps = self._compute_log_probs_pair(
+                    self.ref_model, chosen_ids, chosen_labels, rejected_ids, rejected_labels
                 )
 
             loss, metrics = self._dpo_loss(
@@ -239,17 +268,34 @@ class DPOTrainer(BaseTrainer):
 
         Args:
             sft_path: SFT 模型 checkpoint 路径
+
+        优先级:
+          1. ``<output_dir>/_resume.pth`` 存在 → 自动续训
+          2. 否则加载 ``sft_path`` 作为初始权重
         """
-        # 加载 SFT 权重
-        if sft_path and os.path.exists(sft_path):
+        # ========== 0. 自动续训检查 ==========
+        auto_info = self._try_auto_resume()
+        start_step = 0
+        if auto_info is not None:
+            start_step = auto_info.get("step", 0)
+            print(f"🔄 自动从 step={start_step} 续训 DPO")
+        elif sft_path and os.path.exists(sft_path):
             load_checkpoint(self.model, sft_path, device=self.device)
             print(f"✅ 已加载 SFT 权重: {sft_path}")
         else:
             print("⚠️  未加载 SFT 权重")
 
         # 创建参考模型 (冻结的 SFT 模型副本)
+        # 改进点（vs 原来 copy.deepcopy）：
+        #   - 重新实例化 GPT(model_config) + 加载相同权重，避免 deepcopy 复制 buffer/grad
+        #   - 显存与原来一致（仍是两份 model 权重），但语义更清晰
+        #   - 未来想做 LoRA-DPO 时（ref=base, policy=base+LoRA）可以只保留一份权重
         print("📋 创建参考模型 (冻结)...")
-        self.ref_model = copy.deepcopy(self.model)
+        from ..model.gpt import GPT  # 延迟导入避免循环
+
+        self.ref_model = GPT(self.model.config).to(self.device)
+        # 把 self.model 当前权重复制到 ref（保证 ref 与 SFT 起点一致）
+        self.ref_model.load_state_dict(self.model.state_dict())
         self.ref_model.eval()
         for param in self.ref_model.parameters():
             param.requires_grad = False
@@ -284,21 +330,14 @@ class DPOTrainer(BaseTrainer):
                 rejected_labels = batch["rejected_labels"].to(self.device)
 
                 with amp_autocast(self.device, self.dtype):
-                    # 计算当前模型的 log probs
-                    policy_chosen_logps = self._compute_log_probs(
-                        self.model, chosen_ids, chosen_labels
+                    # 单次 forward 同时算 chosen + rejected（拼 batch，省一半时间）
+                    policy_chosen_logps, policy_rejected_logps = self._compute_log_probs_pair(
+                        self.model, chosen_ids, chosen_labels, rejected_ids, rejected_labels
                     )
-                    policy_rejected_logps = self._compute_log_probs(
-                        self.model, rejected_ids, rejected_labels
-                    )
-
-                    # 计算参考模型的 log probs (不计算梯度)
+                    # 参考模型也走同样的 pair 路径
                     with torch.no_grad():
-                        ref_chosen_logps = self._compute_log_probs(
-                            self.ref_model, chosen_ids, chosen_labels
-                        )
-                        ref_rejected_logps = self._compute_log_probs(
-                            self.ref_model, rejected_ids, rejected_labels
+                        ref_chosen_logps, ref_rejected_logps = self._compute_log_probs_pair(
+                            self.ref_model, chosen_ids, chosen_labels, rejected_ids, rejected_labels
                         )
 
                     # DPO Loss

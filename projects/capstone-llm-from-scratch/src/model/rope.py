@@ -31,42 +31,77 @@ def precompute_rope_frequencies(
     max_seq_len: int,
     base: float = 10000.0,
     device: torch.device = None,
+    rope_scaling: dict | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """预计算 RoPE 的 cos 和 sin 频率矩阵
 
     这个函数在模型初始化时调用一次，之后的 RoPE 应用只需要查表。
 
     Args:
-        head_dim:    每个注意力头的维度 (必须为偶数)
-        max_seq_len: 最大序列长度
-        base:        频率底数 (默认 10000, 与原始 Transformer 一致)
-        device:      计算设备
+        head_dim:     每个注意力头的维度 (必须为偶数)
+        max_seq_len:  最大序列长度
+        base:         频率底数 (默认 10000；minimind/Qwen3 用 1e6 长上下文友好)
+        device:       计算设备
+        rope_scaling: YaRN 长上下文外推配置（None 关闭）。示例：
+                      ``{"type": "yarn", "factor": 4, "original_max_pos": 1024,
+                        "beta_fast": 32, "beta_slow": 1, "attention_factor": 1.0}``
+                      启用后高频维度（位置敏感）保持原频率，低频维度（位置不敏感）
+                      按 ``1/factor`` 缩放，通过 ``beta_fast/beta_slow`` 边界平滑过渡。
+                      参考 minimind/model/model_minimind.py 的 ``precompute_freqs_cis``。
 
     Returns:
-        cos_cached: [max_seq_len, head_dim] 的 cos 值
+        cos_cached: [max_seq_len, head_dim] 的 cos 值（含可选 attention_factor 缩放）
         sin_cached: [max_seq_len, head_dim] 的 sin 值
     """
+    import math
+
     assert head_dim % 2 == 0, f"head_dim ({head_dim}) 必须为偶数"
 
     # Step 1: 计算频率 θ_k = 1 / base^(2k/d), k = 0, 1, ..., d/2-1
-    # 形状: [head_dim // 2]
     k = torch.arange(0, head_dim, 2, dtype=torch.float32, device=device)
     freqs = 1.0 / (base ** (k / head_dim))
 
-    # Step 2: 计算位置 × 频率
-    # positions: [max_seq_len]
-    # freqs:     [head_dim // 2]
-    # 外积 → [max_seq_len, head_dim // 2]
+    attn_factor = 1.0  # YaRN attention scaling
+
+    # ---- YaRN scaling（推理时启用以外推到训练上下文之外）----
+    if rope_scaling is not None and rope_scaling.get("type") == "yarn":
+        original_max = rope_scaling.get("original_max_pos") or rope_scaling.get(
+            "original_max_position_embeddings", max_seq_len
+        )
+        factor = float(rope_scaling.get("factor", 1.0))
+        beta_fast = float(rope_scaling.get("beta_fast", 32.0))
+        beta_slow = float(rope_scaling.get("beta_slow", 1.0))
+        attn_factor = float(rope_scaling.get("attention_factor", 1.0))
+
+        # YaRN 仅在外推（max_seq_len > original_max）时生效
+        if max_seq_len > original_max and factor > 1.0:
+            # 计算高/低频边界（按 wavelength 反推维度）
+            inv_dim = lambda b: (
+                head_dim
+                * math.log(original_max / (b * 2 * math.pi))
+                / (2 * math.log(base))
+            )
+            low = max(math.floor(inv_dim(beta_fast)), 0)
+            high = min(math.ceil(inv_dim(beta_slow)), head_dim // 2 - 1)
+            # ramp: 高频维度（k < low）保持，低频维度（k > high）缩放 1/factor，
+            # 中间维度 linear interpolate
+            ramp = torch.clamp(
+                (torch.arange(head_dim // 2, device=device, dtype=torch.float32) - low)
+                / max(high - low, 0.001),
+                0.0,
+                1.0,
+            )
+            freqs = freqs * (1.0 - ramp + ramp / factor)
+
+    # Step 2: positions × freqs
     positions = torch.arange(max_seq_len, dtype=torch.float32, device=device)
     angles = torch.outer(positions, freqs)
 
-    # Step 3: 扩展到完整的 head_dim 维度
-    # 每个频率对应两个维度 (cos, sin 对)
-    # [max_seq_len, head_dim // 2] → [max_seq_len, head_dim]
+    # Step 3: 扩展到 head_dim 维度
     angles = angles.repeat(1, 2)
 
-    cos_cached = angles.cos()
-    sin_cached = angles.sin()
+    cos_cached = angles.cos() * attn_factor
+    sin_cached = angles.sin() * attn_factor
 
     return cos_cached, sin_cached
 

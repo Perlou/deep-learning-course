@@ -1,7 +1,7 @@
-# ClearMind - 开发计划进度表
+# ClearMind 开发进度表
 
-> 开始日期: 2026-02-18  
-> 最近更新: 2026-02-23  
+> 起始日期: 2026-02-18
+> 最近更新: 2026-05-02
 > 负责人: Perlou
 
 ---
@@ -9,253 +9,183 @@
 ## 📊 总体进度
 
 ```
-整体进度: ████████████████████ 100%
-
-Phase 1:  ██████████ 100%  项目搭建与模型架构
-Phase 2:  ██████████ 100%  数据处理模块
-Phase 3:  ██████████ 100%  预训练
-Phase 4:  ██████████ 100%  SFT 指令微调
-Phase 5:  ██████████ 100%  DPO 对齐训练
-Phase 6:  ██████████ 100%  推理与对话
-Phase 7:  ██████████ 100%  评估体系
-Phase 8:  ██████████ 100%  部署上线
-Phase 9:  ██████████ 100%  推理性能优化
-Phase 10: ██████████ 100%  训练改进
-Phase 11: ██████████ 100%  工程质量
+重构阶段 1（minimind 数据/tokenizer 接入）:    ██████████ 100%  ✅
+重构阶段 2（scripts/evaluate/deploy 重写）:    ██████████ 100%  ✅
+P0（断点续训稳定性升级）:                       ██████████ 100%  ✅
+Phase 1（架构地基修复）:                        ██████████ 100%  ✅
+Phase 2（QK-Norm + RoPE θ=1e6 + YaRN）:        ██████████ 100%  ✅
+Phase 3（蒸馏 + GRPO + PPO + Agent RL）:       ███████░░░  70%  🟢 (核心完成；PPO/Agent RL 待补)
+Phase 4（torch.compile + wandb + 多卡优化）:   ██████████ 100%  ✅
+Phase 5（safetensors + Qwen3 export + push）:  ██████████ 100%  ✅
+Phase E1（评测体系：C-Eval + LLM-Judge）:      ██████████ 100%  ✅
+AutoDL 上线工具链（preflight/launch/save）:    ██████████ 100%  ✅
+线上训练（AutoDL Base + Plus）:                 ░░░░░░░░░░  0%  待开（代码全部就绪）
 ```
 
----
-
-## 📅 Phase 1: 项目搭建与模型架构 ✅
-
-**状态**: ✅ 已完成  
-**目标**: 从零实现完整的 Decoder-only Transformer 架构
-
-| #    | 任务                                     | 状态 | 完成日期   | 备注                           |
-| ---- | ---------------------------------------- | ---- | ---------- | ------------------------------ |
-| 1.1  | 创建项目目录结构                         | ✅   | 2026-02-18 | configs/, src/, scripts/, docs |
-| 1.2  | 创建 requirements.txt                    | ✅   | 2026-02-18 | torch, sentencepiece, datasets |
-| 1.3  | 创建配置文件 (small/medium/large.yaml)   | ✅   | 2026-02-18 | 三档配置: Mini/标准/Plus       |
-| 1.4  | 实现 ModelConfig (config.py)             | ✅   | 2026-02-18 | dataclass + from_yaml          |
-| 1.5  | 实现 RoPE 旋转位置编码 (rope.py)         | ✅   | 2026-02-18 | 预计算频率 + 旋转应用          |
-| 1.6  | 实现 RMSNorm (normalization.py)          | ✅   | 2026-02-18 | 对比 LayerNorm 验证            |
-| 1.7  | 实现 SwiGLU 激活函数 (activation.py)     | ✅   | 2026-02-18 | 纯激活函数                     |
-| 1.8  | 实现 Multi-Head Attention (attention.py) | ✅   | 2026-02-18 | MHA + GQA + Causal Mask + RoPE |
-| 1.9  | 实现 FeedForward (feedforward.py)        | ✅   | 2026-02-18 | SwiGLU FFN (3 矩阵)            |
-| 1.10 | 实现 TransformerBlock (transformer.py)   | ✅   | 2026-02-18 | Pre-Norm + Residual            |
-| 1.11 | 实现 GPT 完整模型 (gpt.py)               | ✅   | 2026-02-18 | Embedding + N×Block + LMHead   |
-| 1.12 | 模型验证脚本 (verify_model.py)           | ✅   | 2026-02-18 | 参数量统计 + shape 验证        |
+| 总计 | 测试 |
+|---|---|
+| 全部代码 / 工具链就绪 | **141 个 pytest 全过** |
 
 ---
 
-## 📅 Phase 2: 数据处理模块 ✅
+## ✅ Phase 1 — 架构地基修复（已完成）
 
-**状态**: ✅ 已完成  
-**目标**: 实现 Tokenizer 训练和三种数据集的加载
-
-| #   | 任务                                     | 状态 | 完成日期   | 备注                         |
-| --- | ---------------------------------------- | ---- | ---------- | ---------------------------- |
-| 2.1 | 实现数据准备脚本 (prepare_data.py)       | ✅   | 2026-02-18 | 样例数据 + HuggingFace 下载  |
-| 2.2 | 实现 Tokenizer 训练 (train_tokenizer.py) | ✅   | 2026-02-18 | sentencepiece BPE            |
-| 2.3 | 实现 Tokenizer 封装类 (tokenizer.py)     | ✅   | 2026-02-18 | encode/decode/special tokens |
-| 2.4 | 实现预训练数据集 (pretrain_dataset.py)   | ✅   | 2026-02-18 | 文本拼接→固定长度切分        |
-| 2.5 | 实现 SFT 数据集 (sft_dataset.py)         | ✅   | 2026-02-18 | 对话模板 + loss mask         |
-| 2.6 | 实现 DPO 数据集 (dpo_dataset.py)         | ✅   | 2026-02-18 | chosen/rejected 对           |
-| 2.7 | 真实数据集下载 (download_dataset.py)     | ✅   | 2026-02-18 | HuggingFace + 三档规模       |
-
----
-
-## 📅 Phase 3: 预训练 ✅
-
-**状态**: ✅ 已完成  
-**目标**: 实现预训练流程
-
-| #   | 任务                                | 状态 | 完成日期   | 备注                           |
-| --- | ----------------------------------- | ---- | ---------- | ------------------------------ |
-| 3.1 | 实现训练工具函数 (trainer_utils.py) | ✅   | 2026-02-18 | LR scheduler, grad clipping    |
-| 3.2 | 实现预训练 Trainer (pretrain.py)    | ✅   | 2026-02-18 | AdamW + cosine LR + grad accum |
-| 3.3 | 实现 Checkpoint 保存/恢复           | ✅   | 2026-02-18 | model + optimizer + step       |
-| 3.4 | 实现训练日志记录                    | ✅   | 2026-02-18 | loss, lr, speed, ETA           |
-| 3.5 | 统一训练入口 (train.py --stage)     | ✅   | 2026-02-18 | pretrain/sft/dpo 统一入口      |
+| 修复 | 状态 |
+|---|---|
+| `GPT.forward` attention_mask `0*inf=NaN` bug | ✅ 已修 |
+| SFT loss-mask BPE 边界错位 → 改用 token 序列扫描 | ✅ |
+| `_optimizer_step` LR 错位（scaler 跳过更新仍 scheduler.step） | ✅ |
+| 每层重复 RoPE buffer → 顶层共享 | ✅ |
+| 冗余 causal_mask buffer → 按需动态构造 | ✅ |
+| DPO chosen/rejected 双 forward + deepcopy → 单 forward + 共享 ref | ✅ |
+| 残差 proj 初始化 1/√(2L) 缩放（GPT-2/Llama 标准） | ✅ |
+| DataLoader 默认 num_workers=0 / 无 persistent_workers → 智能默认 | ✅ |
+| Checkpoint 非原子保存 + 全 fp32 落盘 → atomic write + half_weights | ✅ |
+| **NaN 三层防御**（dataset 尾部截断 + loss safe-aggregate + trainer 守卫） | ✅ |
+| **chat.py truncation budget 边界 case**（max_new ≥ max_seq_len） | ✅ |
+| **load_checkpoint 友好的 shape mismatch 报错** | ✅ |
 
 ---
 
-## 📅 Phase 4: SFT 指令微调 ✅
+## ✅ Phase 2 — 架构升级（已完成）
 
-**状态**: ✅ 已完成  
-**目标**: 在预训练模型上进行指令微调
-
-| #   | 任务                            | 状态 | 完成日期   | 备注                           |
-| --- | ------------------------------- | ---- | ---------- | ------------------------------ |
-| 4.1 | 实现 SFT Trainer (sft.py)       | ✅   | 2026-02-18 | 加载 pretrain ckpt + loss mask |
-| 4.2 | SFT 训练 (train.py --stage sft) | ✅   | 2026-02-18 | 统一训练入口                   |
-
----
-
-## 📅 Phase 5: DPO 对齐训练 ✅
-
-**状态**: ✅ 已完成  
-**目标**: 实现 DPO 算法并完成对齐训练
-
-| #   | 任务                            | 状态 | 完成日期   | 备注                 |
-| --- | ------------------------------- | ---- | ---------- | -------------------- |
-| 5.1 | 实现 DPO Trainer (dpo.py)       | ✅   | 2026-02-18 | DPO loss + ref model |
-| 5.2 | DPO 训练 (train.py --stage dpo) | ✅   | 2026-02-18 | 统一训练入口         |
+| 升级 | 文件 | 状态 |
+|---|---|---|
+| QK-Norm（Llama-3 / Gemma2 同款） | `src/model/attention.py` | ✅ |
+| RoPE θ=1e6（Qwen3 对齐，长上下文友好） | `src/model/rope.py` + ModelConfig.rope_theta=1e6 | ✅ |
+| YaRN 长上下文外推 | `src/model/rope.py::precompute_rope_frequencies(rope_scaling=...)` | ✅ |
+| `d_ff = ⌈d_model · π / 64⌉ · 64`（minimind/Qwen3 风格） | 4 个 yaml + ModelConfig 工厂 | ✅ |
+| Sliding Window Attention | `src/model/attention.py` | ✅ |
 
 ---
 
-## 📅 Phase 6: 推理与对话 ✅
+## 🟢 Phase 3 — 训练阶段扩展（70%，核心完成）
 
-**状态**: ✅ 已完成  
-**目标**: 实现推理引擎和交互式对话
-
-| #   | 任务                              | 状态 | 完成日期   | 备注                      |
-| --- | --------------------------------- | ---- | ---------- | ------------------------- |
-| 6.1 | 实现文本生成引擎 (generate.py)    | ✅   | 2026-02-18 | top-k, top-p, temperature |
-| 6.2 | 实现交互式对话 (chat.py)          | ✅   | 2026-02-18 | 终端 CLI 对话界面         |
-| 6.3 | 对话入口脚本 (scripts/chat.py)    | ✅   | 2026-02-18 | 自动查找最佳模型          |
-| 6.4 | AutoDL 一键训练 (autodl_train.sh) | ✅   | 2026-02-18 | A100 部署脚本             |
-| 6.5 | 编写 README.md                    | ✅   | 2026-02-18 | 项目总览 + 快速开始       |
-| 6.6 | 更新 PROGRESS_TRACKER.md          | ✅   | 2026-02-18 | 全部进度更新              |
-
----
-
-## 📅 Phase 7: 评估体系 ✅
-
-**状态**: ✅ 已完成  
-**目标**: 构建 PPL / 生成质量 / 指令跟随 全面评估体系
-
-| #   | 任务                                   | 状态 | 完成日期   | 备注                           |
-| --- | -------------------------------------- | ---- | ---------- | ------------------------------ |
-| 7.1 | 增强困惑度评估 (eval_perplexity.py)    | ✅   | 2026-02-19 | 新增 --compare 阶段对比        |
-| 7.2 | 实现生成质量评估 (eval_generation.py)  | ✅   | 2026-02-19 | Distinct-N / 重复率 / 平均长度 |
-| 7.3 | 实现指令跟随评估 (eval_instruction.py) | ✅   | 2026-02-19 | 格式正确率 / 相关性 / 安全拒绝 |
-| 7.4 | 实现综合评估报告 (eval_benchmark.py)   | ✅   | 2026-02-19 | 一键全面评测 + Markdown 报告   |
+| 阶段 | 文件 | 状态 | 备注 |
+|---|---|---|---|
+| Pretrain | `src/training/pretrain.py` | ✅ | step-based + per_sample/packed 双模式 |
+| SFT | `src/training/sft.py` | ✅ | epoch-based + max_steps cap + NaN 守卫 |
+| DPO | `src/training/dpo.py` (463 行) | ✅ | 单 forward + 共享 ref |
+| **白盒蒸馏** | `src/training/distillation.py` (341 行) | ✅ | KL + T² 缩放 + α 混合 CE |
+| **GRPO + CISPO** | `src/training/grpo.py` (382 行) | ✅ | DeepSeek-R1 同款 + 规则 reward |
+| **Rollout 引擎** | `src/training/rollout_engine.py` (430 行) | ✅ | TorchBackend ✅ + SGLangBackend ✅ |
+| LoRA | `src/training/lora.py` | ✅ | 显式 LoRALinear 类（torch.compile 兼容） |
+| PPO | — | ❌ 待补 | GRPO 已能覆盖大多数用例；PPO 是后续延伸 |
+| Agentic RL | — | ❌ 待补 | 需要工具调用模拟器；Phase 6 候选 |
 
 ---
 
-## 📅 Phase 8: 部署上线 ✅
+## ✅ Phase 4 — 工程化补强（已完成）
 
-**状态**: ✅ 已完成  
-**目标**: REST API / Web UI / Docker 全链路部署
-
-| #   | 任务                               | 状态 | 完成日期   | 备注                           |
-| --- | ---------------------------------- | ---- | ---------- | ------------------------------ |
-| 8.1 | 实现 REST API (api_server.py)      | ✅   | 2026-02-19 | FastAPI, 兼容 OpenAI 格式, SSE |
-| 8.2 | 实现 Web 演示 (web_demo.py)        | ✅   | 2026-02-19 | Gradio 对话界面 + 参数面板     |
-| 8.3 | 实现模型导出 (export_model.py)     | ✅   | 2026-02-19 | 权重瘦身 / TorchScript / INT8  |
-| 8.4 | 容器化部署 (Dockerfile)            | ✅   | 2026-02-19 | Docker 一键构建 + GPU 支持     |
-| 8.5 | 部署依赖 (requirements-deploy.txt) | ✅   | 2026-02-19 | fastapi, gradio, uvicorn       |
-
----
-
-## 📅 Phase 9: 推理性能优化 🔜
-
-**状态**: ✅ 已完成  
-**目标**: 大幅提升推理速度和显存效率  
-**优先级**: 🔥 高
-
-| #   | 任务                          | 状态 | 优先级 | 备注                                       |
-| --- | ----------------------------- | ---- | ------ | ------------------------------------------ |
-| 9.1 | 实现 KV Cache                 | ✅   | 🔥 P0  | Prefill + Decode 模式，推理速度提升 5-10x  |
-| 9.2 | 集成 Flash Attention          | ✅   | 🔥 P0  | F.scaled_dot_product_attention()           |
-| 9.3 | 实现 Sliding Window Attention | ✅   | 🟡 P2  | 降低长序列显存，config.sliding_window 可选 |
-| 9.4 | GGUF 格式导出                 | ✅   | 🟡 P2  | deploy/export_gguf.py, llama.cpp 兼容      |
+| 优化 | 文件 | 配置开关 | 状态 |
+|---|---|---|---|
+| `torch.compile` | `base_trainer.py` | `use_compile: true` | ✅ CUDA 默认开 |
+| **Fused AdamW** | `base_trainer.py` | `use_fused_adamw: true` | ✅ +10-15% optimizer step |
+| **Activation checkpointing** | `gpt.py` (gradient_checkpointing_enable/disable) | `use_gradient_checkpointing: true` | ✅ plus 默认开 |
+| **DDP no_sync** | `scripts/launch_ddp.py` | （DDP 自动） | ✅ 节省 30% 通信带宽 |
+| SkipBatchSampler | `trainer_utils.py` | （续训自动） | ✅ |
+| wandb / swanlab | `base_trainer.py` | `use_wandb: true` + `wandb_backend` | ✅ 双后端 |
+| TensorBoard | `trainer_utils.py::TrainingLogger` | `use_tensorboard: true` | ✅ |
+| pin_memory + persistent_workers + prefetch_factor | `base_trainer.py` | 自动 | ✅ |
 
 ---
 
-## 📅 Phase 10: 训练改进 ✅
+## ✅ Phase 5 — 发布闭环（已完成）
 
-**状态**: ✅ 已完成  
-**目标**: 提升训练质量和灵活性  
-**优先级**: ⚡ 中高
-
-| #    | 任务                        | 状态 | 优先级 | 备注                           |
-| ---- | --------------------------- | ---- | ------ | ------------------------------ |
-| 10.1 | 增加验证集 + Early Stopping | ✅   | 🔥 P0  | pretrain/sft/dpo 全部集成      |
-| 10.2 | 混合精度 GradScaler         | ✅   | ⚡ P1  | CUDA FP16 下防止梯度下溢       |
-| 10.3 | 多卡数据并行 (DDP)          | ✅   | ⚡ P1  | DDP 工具函数 + launch 脚本     |
-| 10.4 | 实现 LoRA 微调              | ✅   | 🟡 P2  | lora.py: apply/merge/save/load |
-| 10.5 | 集成 TensorBoard            | ✅   | 🟡 P2  | TrainingLogger 可选 TB 写入    |
-
----
-
-## 📅 Phase 11: 工程质量 ✅
-
-**状态**: ✅ 已完成  
-**目标**: 提升代码质量和可维护性  
-**优先级**: 🛠️ 中
-
-| #    | 任务                  | 状态 | 优先级 | 备注                                       |
-| ---- | --------------------- | ---- | ------ | ------------------------------------------ |
-| 11.1 | 提取 Trainer 基类     | ✅   | ⚡ P1  | BaseTrainer 封装共享逻辑                   |
-| 11.2 | 增加单元测试 (pytest) | ✅   | ⚡ P1  | 覆盖核心模块 + 训练边界条件                |
-| 11.3 | 完善类型提示          | ✅   | 🟡 P2  | trainer_utils 全部补全返回值注解           |
-| 11.4 | Tokenizer 鲁棒性      | ✅   | 🟡 P2  | byte-fallback + check_coverage()           |
-| 11.5 | 配置校验增强          | ✅   | 🟢 P3  | vocab_size/n_layers/dropout/sliding_window |
+| 模块 | 文件 | 状态 |
+|---|---|---|
+| Qwen3 兼容导出 | `scripts/convert_to_qwen3.py` (464 行) | ✅ 含 model card 自动生成 |
+| safetensors 落盘 | `convert_to_qwen3.py::_save_safetensors` | ✅ |
+| HuggingFace push | `scripts/push_to_hub.py` (211 行) | ✅ |
+| ModelScope push | `scripts/push_to_modelscope.py` (188 行) | ✅ |
+| OpenAI 兼容 API server | `deploy/api_server.py` (390 行) | ✅ |
+| Web demo (Gradio) | `deploy/web_demo.py` (191 行) | ✅ |
+| Dockerfile | `deploy/Dockerfile` | ✅ |
+| **端到端发布流水线** | `scripts/release.sh` (8.9 KB) | ✅ 5 步：检查→转换→transformers 验证→打包→push |
 
 ---
 
-## 📈 进度统计
+## ✅ Phase E1 — 评测体系（已完成）
 
-| 阶段     | 总任务数 | 已完成 | 完成率   |
-| -------- | -------- | ------ | -------- |
-| Phase 1  | 12       | 12     | 100%     |
-| Phase 2  | 7        | 7      | 100%     |
-| Phase 3  | 5        | 5      | 100%     |
-| Phase 4  | 2        | 2      | 100%     |
-| Phase 5  | 2        | 2      | 100%     |
-| Phase 6  | 6        | 6      | 100%     |
-| Phase 7  | 4        | 4      | 100%     |
-| Phase 8  | 5        | 5      | 100%     |
-| Phase 9  | 4        | 4      | 100%     |
-| Phase 10 | 5        | 5      | 100%     |
-| Phase 11 | 5        | 5      | 100%     |
-| **总计** | **57**   | **57** | **100%** |
+| 评测 | 文件 | 协议 |
+|---|---|---|
+| 困惑度 (PPL) | `evaluate/eval_perplexity.py` | 三阶段对比（pretrain/sft/dpo） |
+| 生成多样性 | `evaluate/eval_generation.py` | Distinct-N + trigram 重复率 + EOS 命中 |
+| 指令跟随（旧） | `evaluate/eval_instruction.py` | 14 题 keyword overlap（冒烟用） |
+| **C-Eval** | `evaluate/benchmarks/ceval.py` | 5-shot loglikelihood（OpenCompass 对齐） |
+| **CMMLU** | `evaluate/benchmarks/cmmlu.py` | 5-shot loglikelihood |
+| **AlignBench-zh** | `evaluate/benchmarks/alignbench.py` | LLM-as-Judge 1-10 分 |
+| **LLM-as-Judge 客户端** | `evaluate/judge/llm_judge.py` | OpenAI 兼容（DeepSeek/GPT/Qwen-72B） |
+| **多模型对照** | `evaluate/eval_compare.py` | merge/run 双模式，输出 markdown |
+
+详见 [`evaluate/README.md`](../evaluate/README.md)。
 
 ---
 
-## 📝 模型家族
+## ✅ AutoDL 上线工具链（已完成）
 
-| 代号           | 配置文件            | 参数量 | 适合设备  |
-| -------------- | ------------------- | ------ | --------- |
-| ClearMind-Mini | configs/small.yaml  | ~26M   | MacBook   |
-| ClearMind      | configs/medium.yaml | ~200M  | GPU 24GB+ |
-| ClearMind-Plus | configs/large.yaml  | ~468M  | A100 80GB |
+| 脚本 | 职责 |
+|---|---|
+| `scripts/autodl/preflight.sh` | 9 项强制自检（Python/依赖/GPU/磁盘/数据/tmux/单测/冒烟） |
+| `scripts/autodl/launch.sh` | tmux 启动器，断 SSH 不影响；自动级联 pretrain→sft→dpo |
+| `scripts/autodl/status.sh` | 训练状态查询（sessions/进程/GPU/最近 step/产物/磁盘） |
+| `scripts/autodl/save_outputs.sh` | 归档 ckpt+log+eval+manifest+sha256 → tar.gz |
+| `scripts/release.sh` | 端到端发布（convert→验证→打包→push HF/MS） |
+
+详见 [`docs/AUTODL_GUIDE.md`](AUTODL_GUIDE.md)。
 
 ---
 
-## 📋 每日更新日志
+## ⏳ 待开（代码就绪，需要 GPU）
 
-### 2026-02-23
+### 1. 上 AutoDL 跑 Base 正式训练
 
-- 🧪 新增 `scripts/smoke_test.py`，一键验证「数据→分词器→预训练」最小链路
-- 🔀 `scripts/launch_ddp.py` 从模板升级为可执行 DDP 预训练入口（支持参数覆盖与断点续训）
-- 🧱 训练循环边界修复：`max_steps=0`、梯度累积余数步、epoch 步数下界
-- 📦 `data` 包改为懒加载 tokenizer，避免 dataset-only 场景被 `sentencepiece` 隐式阻断
-- 📝 同步更新 README / DEPLOY / TECHNICAL_DESIGN / AUTODL 文档
+```bash
+bash scripts/autodl/preflight.sh --profile base
+bash scripts/autodl/launch.sh tiny  all       # 5 min 冒烟
+bash scripts/autodl/launch.sh small all       # 30 min 验证
+bash scripts/autodl/launch.sh base  all       # 12-18h 正式
+```
 
-### 2026-02-19
+预期成本：¥150-300（4090 / A100 80G 单卡按量）。
 
-- 🧪 补充单元测试: test_tokenizer / test_attention / test_generate / test_datasets (新增 40+ 测试用例)
-- 🔍 Tokenizer 新增 check_coverage() OOV 覆盖率检测
-- ✅ 配置校验增强: vocab_size / n_layers / dropout / sliding_window
-- 📝 trainer_utils 补全返回值类型注解
-- 🐛 修复 is_main_process() IndentationError
-- 📊 新增评估体系: eval_generation / eval_instruction / eval_benchmark
-- 🔄 增强 eval_perplexity: --compare 阶段对比功能
-- 🚀 新增部署模块: FastAPI API / Gradio Web / 模型导出 / Docker
-- 📝 更新 README: 评估章节 + 部署章节 + 项目结构
-- 📋 进度表更新: 全部 11 个 Phase 完成 100%
+### 2. 评测 + 发模型卡
 
-### 2026-02-18
+```bash
+python evaluate/benchmarks/ceval.py --config configs/main.yaml
+python evaluate/benchmarks/alignbench.py --config configs/main.yaml
+bash scripts/release.sh base --stage dpo --push-hf you/ClearMind-Base
+```
 
-- 📝 创建项目文档 (PRD, TECHNICAL_DESIGN, PROGRESS_TRACKER)
-- 🏗️ 搭建项目结构, 实现 requirements.txt 和三档配置
-- 🧠 实现完整模型架构 (RoPE, RMSNorm, SwiGLU, GQA, TransformerBlock, GPT)
-- 📦 实现数据处理模块 (Tokenizer, PretrainDataset, SFTDataset, DPODataset)
-- 🏋️ 实现三阶段训练 (PreTrainer, SFTTrainer, DPOTrainer)
-- 💬 实现推理和对话模块 (generate, chat)
-- 📊 实现困惑度评估
-- 🚀 新增 A100 适配: large.yaml + 真实数据下载 + AutoDL 部署脚本
-- 🏷️ 模型命名: ClearMind 系列 (Mini / 标准 / Plus)
+### 3. Plus 训练 + 发布（可选）
+
+```bash
+bash scripts/autodl/launch.sh plus all        # 30-40h 正式
+bash scripts/release.sh plus --stage dpo --push-hf you/ClearMind-Plus
+```
+
+预期成本：¥400-700（A100/A800 80G 单卡按量）。
+
+---
+
+## 🔮 路线图（未来工作）
+
+| Phase | 内容 | 优先级 | 预估工作量 |
+|---|---|---|---|
+| Phase 3.x | PPO trainer（actor + critic + GAE + value loss） | P2 | ~1 天本地 |
+| Phase 3.x | Agentic RL（tool 调用模拟器 + multi-step reward） | P3 | ~3-5 天 |
+| Phase E2 | GSM8K-zh / LongBench-zh / Safety-Prompts | P2 | ~1 天 |
+| Phase E3 | HumanEval-zh / BBH-zh / 自动 model card 生成器 | P3 | ~1 天 |
+| 长上下文 | YaRN scaling 实测验证（LongBench-zh 跑分） | P2 | 几小时 |
+| Plus 训练 | 实际 GPU 训练 + 评测 + 发模型卡 | P0 | 30-40h GPU |
+
+---
+
+## 📌 关键技术决策记录
+
+1. **复用 minimind tokenizer**：避免重训 tokenizer 的成本，且数据完全对齐
+2. **从训练 GPT 转 Qwen3 兼容**：发布时通过命名映射转 `Qwen3ForCausalLM`，让用户用 `AutoModelForCausalLM.from_pretrained` 即用
+3. **Tiny config 缩到 0.5M**：纯流程冒烟，不期待生成质量
+4. **NaN 三层防御**：data 截断 + loss 安全聚合 + trainer 守卫，应对 SFT 长 prompt 截断的经典坑
+5. **OpenAI 兼容 LLM-Judge**：通过 env var 切换 OpenAI / DeepSeek / 阿里百炼 / 自部署 vLLM
+6. **tmux 抗断连**：保证 12-40h 训练不被 SSH 抖动打断

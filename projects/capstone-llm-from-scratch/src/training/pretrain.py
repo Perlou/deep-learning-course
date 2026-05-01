@@ -102,18 +102,25 @@ class PreTrainer(BaseTrainer):
         avg_loss = 0.0
         stopped_early = False
 
-        # 断点续训
+        # ========== 优先级：显式 --resume > 自动 _resume.pth ==========
         if resume_from and os.path.exists(resume_from):
             info = load_checkpoint(
                 self.model,
                 resume_from,
                 optimizer=self.optimizer,
                 scheduler=self.scheduler,
+                scaler=self.scaler,
                 device=self.device,
             )
             start_step = info["step"]
             avg_loss = float(info.get("loss", 0.0))
-            print(f"🔄 从 step {start_step} 恢复训练")
+            print(f"🔄 从 step {start_step} 恢复训练（显式 --resume）")
+        else:
+            auto_info = self._try_auto_resume()
+            if auto_info is not None:
+                start_step = auto_info["step"]
+                avg_loss = float(auto_info.get("loss", 0.0))
+                print(f"🔄 自动从 step {start_step} 续训")
 
         if start_step >= self.max_steps:
             print("✅ 当前 checkpoint 已达到或超过 max_steps，无需继续训练")
