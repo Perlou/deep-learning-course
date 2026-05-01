@@ -148,6 +148,18 @@ AutoDL 上线工具链（preflight/launch/save）:    ████████�
 
 > A800 80G（5.24/h）最稳但贵 ¥80+；4090 跑 Plus 需要 100+h 风险高，不推荐。详见 [AUTODL_GUIDE.md](AUTODL_GUIDE.md#step-1--注册-autodl--选-gpu)。
 
+### 已确认 Base 实例配置（2026-05-02 选定）
+
+| 项 | 配置 | 评估 |
+|---|---|---|
+| GPU | RTX 4090 24GB | ✅ 35% VRAM 利用，富余 17GB |
+| CPU | Xeon Gold 6430 × 16 核 | ✅ 富余（8 worker 用得上） |
+| 内存 | 120 GB | ✅ 巨富余 |
+| 系统盘 | 30 GB | 🟡 venv/cache 必须重定向到数据盘 |
+| 数据盘 | 50 GB | 🟡 够用（~30GB 占用），建议升到 80GB 留 buffer |
+
+部署前必须先在 `~/.bashrc` 配置 cache 重定向（详见 AUTODL_GUIDE.md Step 2.2.1）。
+
 ### 1. 上 AutoDL 跑 Base 正式训练（RTX 4090，~¥70）
 
 ```bash

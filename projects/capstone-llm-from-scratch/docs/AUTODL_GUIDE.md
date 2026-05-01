@@ -110,6 +110,26 @@ ssh -p 12345 root@connect.westa.seetacloud.com
 
 ### 2.2 部署
 
+进入后默认在 `/root`。**所有项目和数据都放在 `/root/autodl-tmp/`**（数据盘，关机后保留；`/root` 是系统盘 30GB，可能被 venv / pip cache / HF cache 打爆）。
+
+#### Step 2.2.1 — 先配环境变量（避免系统盘爆炸）
+
+AutoDL 系统盘只有 30GB，pip cache / HuggingFace cache / /tmp 默认全在系统盘，不处理会很快塞满导致训练写不进 ckpt。**第一件事**先把这些重定向到数据盘：
+
+```bash
+cat >> ~/.bashrc <<'EOF'
+# ClearMind 环境（让所有 cache 落数据盘 /root/autodl-tmp，避免系统盘炸）
+export HF_HOME=/root/autodl-tmp/.hf-cache
+export HF_HUB_CACHE=/root/autodl-tmp/.hf-cache/hub
+export PIP_CACHE_DIR=/root/autodl-tmp/.pip-cache
+export TMPDIR=/root/autodl-tmp/tmp
+mkdir -p $HF_HOME $HF_HUB_CACHE $PIP_CACHE_DIR $TMPDIR
+EOF
+source ~/.bashrc
+```
+
+#### Step 2.2.2 — Clone + 装依赖
+
 ```bash
 cd /root/autodl-tmp
 
@@ -117,7 +137,7 @@ cd /root/autodl-tmp
 git clone https://github.com/<your-username>/clearmind.git
 cd clearmind
 
-# 创建 venv（与本地一致）
+# 创建 venv（务必在 /root/autodl-tmp/ 下，让 venv 也落数据盘）
 python3 -m venv venv
 source venv/bin/activate
 pip install -U pip
@@ -131,6 +151,15 @@ python scripts/download_data.py --profile base --source modelscope     # 国内�
 # 或者
 python scripts/download_data.py --profile plus --source modelscope
 ```
+
+#### Step 2.2.3 — 数据盘容量预算
+
+| 训练 | 数据盘占用估算 | 50GB 数据盘 | 推荐 |
+|---|---|---|---|
+| **Base** 全流程 | ~30 GB（项目 8 + 数据 3 + outputs 17 + 余量） | 🟡 够用但只剩 20G buffer | 50GB 够；想稳一点选 80GB |
+| **Plus** 全流程 | ~60-80 GB（plus 数据 24 + outputs 50+） | 🔴 不够 | 必选 100GB+ |
+
+省空间技巧（Base 可选）：把 `configs/main.yaml` 的 `save_every: 5000` → `10000`，少存一半中间 ckpt，省 ~5GB。
 
 > 💡 **首次 clone 完务必跑 `bash scripts/autodl/preflight.sh`**（见下一步），别上来就训。
 
