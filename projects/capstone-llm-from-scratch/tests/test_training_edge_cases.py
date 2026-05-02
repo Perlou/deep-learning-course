@@ -145,3 +145,37 @@ def test_epoch_trainers_use_ceil_steps_per_epoch(tiny_model, tmp_path):
     )
     assert dpo_trainer.steps_per_epoch == 1
     assert dpo_trainer.max_steps == 2
+
+
+def test_dpo_trainer_respects_config_max_steps(tiny_model, tmp_path):
+    """DPOTrainer 应允许 config.max_steps 下调总步数（与 SFTTrainer 行为对齐）。
+
+    回归测试：旧实现 self.max_steps = steps_per_epoch * epochs 完全忽略
+    config["max_steps"]，导致 yaml 里的 max_steps 字段失效，AutoDL 上跑全量
+    DPO 时无法限制时长。
+    """
+    from training.dpo import DPOTrainer
+
+    # 数据集大到能被 max_steps 截短：size=64, batch=1, grad_accum=1, epochs=2
+    # → steps_per_epoch=64, full_max=128；用 max_steps=10 应该被尊重
+    dpo_trainer = DPOTrainer(
+        model=tiny_model,
+        train_dataset=TinyDPODataset(
+            size=64,
+            seq_len=16,
+            vocab_size=tiny_model.config.vocab_size,
+        ),
+        config={
+            "epochs": 2,
+            "batch_size": 1,
+            "gradient_accumulation": 1,
+            "max_steps": 10,
+        },
+        output_dir=str(tmp_path / "dpo_max_steps"),
+    )
+    assert dpo_trainer.steps_per_epoch == 64
+    # 关键断言：max_steps 应该被 config 覆盖到 10，而不是 128
+    assert dpo_trainer.max_steps == 10, (
+        f"DPOTrainer 没有尊重 config.max_steps；"
+        f"期望 10，实际 {dpo_trainer.max_steps}"
+    )

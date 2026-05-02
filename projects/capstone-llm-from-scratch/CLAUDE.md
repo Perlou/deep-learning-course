@@ -90,15 +90,17 @@ bash run.sh
 
 | Bug / 改进 | 状态 |
 |---|---|
-| `GPT.forward` attention_mask `0*inf=NaN`（影响所有 SFT/DPO） | ✅ 已修复（`src/model/gpt.py:122-138`） |
+| `GPT.forward` attention_mask `0*inf=NaN`（影响所有 SFT/DPO） | ✅ 已修复（`src/model/gpt.py:185-201`） |
 | SFT loss-mask BPE 边界错位（旧实现用子串截取） | ✅ 已修复（HFTokenizer.generate_assistant_mask 用 token 序列扫描） |
-| `_optimizer_step` LR 错位（scaler 跳过更新仍 scheduler.step） | 🚧 Phase 1 待修 |
-| 每层重复 RoPE buffer | 🚧 Phase 1 待修 |
-| 冗余 causal_mask buffer | 🚧 Phase 1 待修 |
-| DPO chosen/rejected 两次独立 forward + deepcopy 创建 ref | 🚧 Phase 1 待修 |
-| 残差 proj 初始化未做 1/√(2L) 缩放 | 🚧 Phase 1 待修 |
-| DataLoader 默认 num_workers=0 / 无 persistent_workers | 🚧 Phase 1 待修 |
-| Checkpoint 非原子保存 + 全 fp32 落盘 | 🚧 Phase 1 待修 |
+| `_optimizer_step` LR 错位（scaler 跳过更新仍 scheduler.step） | ✅ 已修复 |
+| 每层重复 RoPE buffer | ✅ 已修复（顶层共享，`src/model/gpt.py:82-83`） |
+| 冗余 causal_mask buffer | ✅ 已修复（按需动态构造） |
+| DPO chosen/rejected 两次独立 forward + deepcopy 创建 ref | ✅ 已修复（单 forward + 共享 ref） |
+| 残差 proj 初始化未做 1/√(2L) 缩放 | ✅ 已修复 |
+| DataLoader 默认 num_workers=0 / 无 persistent_workers | ✅ 已修复（智能默认） |
+| Checkpoint 非原子保存 + 全 fp32 落盘 | ✅ 已修复（atomic write + half_weights） |
+| **DPOTrainer 忽略 `config.max_steps`**（yaml 限制无效） | ✅ 已修复 2026-05-02（`src/training/dpo.py:81-89`，对齐 sft.py 写法） |
+| **RMSNorm bf16 输出退化为 fp32**（破坏 autocast dtype 一致性） | ✅ 已修复 2026-05-02（`src/model/normalization.py`，内部 fp32 计算 + `.type_as(x)` 回原 dtype） |
 
 ## 代码规范
 
@@ -111,8 +113,10 @@ bash run.sh
 
 ## 测试
 
-93 个测试覆盖所有核心模块（`pytest tests/`）。其中：
+147 个测试覆盖所有核心模块（`pytest tests/`）。其中：
 - 14 个 dataset 测试（`tests/test_datasets.py`）覆盖 PretrainDataset packed/per_sample、SFTDataset conversations/Alpaca/loss-mask、DPODataset conversations/字符串 fallback/loss-mask
+- 5 个 RMSNorm dtype 测试（`tests/test_normalization.py`）覆盖 bf16/fp16 内部 fp32 计算契约
+- DPO max_steps override 回归测试（`tests/test_training_edge_cases.py::test_dpo_trainer_respects_config_max_steps`）
 - 其它测试不依赖 transformers，可在最小环境跑
 - `conftest.py` 提供 `hf_tokenizer` fixture（session 作用域，缺 transformers 自动 skip）
 

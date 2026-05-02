@@ -83,7 +83,11 @@ class DPOTrainer(BaseTrainer):
         self.steps_per_epoch = max(
             1, math.ceil(len(self.train_loader) / self.gradient_accumulation)
         )
-        self.max_steps = self.steps_per_epoch * self.epochs
+        # 默认按 epoch 算总步数；config.max_steps 可下调（与 SFTTrainer 行为对齐，
+        # 让 yaml 里的 max_steps 能在 AutoDL 等成本敏感场景限制总训练时长）
+        full_max = self.steps_per_epoch * self.epochs
+        cfg_max = config.get("max_steps")
+        self.max_steps = min(cfg_max, full_max) if cfg_max else full_max
 
         # 学习率调度器
         self.scheduler = CosineWarmupScheduler(

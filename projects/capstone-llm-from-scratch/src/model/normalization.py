@@ -42,18 +42,22 @@ class RMSNorm(nn.Module):
             x: 输入张量 [..., dim]
 
         Returns:
-            归一化后的张量, 形状不变
-        """
-        # Step 1: 计算 RMS = sqrt(mean(x²) + ε)
-        # x.pow(2): 每个元素平方
-        # .mean(-1, keepdim=True): 在最后一维上求均值
-        # rsqrt = 1/sqrt: 合并开方和除法为一步
-        rms = x.pow(2).mean(-1, keepdim=True).add(self.eps).rsqrt()
+            归一化后的张量, 形状不变, dtype 与输入一致
 
-        # Step 2: 归一化并缩放
-        # x * rms: x / sqrt(mean(x²) + ε)
-        # * self.weight: 乘以可学习参数 γ
-        return x * rms * self.weight
+        Note:
+            内部强制 fp32 计算（与 minimind/Llama/Qwen3 一致），原因：
+              1. bf16/fp16 下 ``x.pow(2).mean(-1)`` 在 long context / 大方差
+                 输入时累积舍入误差大，可能触发 loss 尖刺
+              2. 若直接用 ``x * rms * self.weight``（weight 默认 fp32），bf16
+                 输入会因广播被提升为 fp32，破坏 autocast 的 dtype 一致性
+            参考：minimind/model/model_minimind.py:60
+        """
+        # Step 1: 在 fp32 中计算 RMS（避免 bf16/fp16 下 pow(2).mean 的精度损失）
+        x_fp32 = x.float()
+        rms = x_fp32.pow(2).mean(-1, keepdim=True).add(self.eps).rsqrt()
+
+        # Step 2: 归一化并缩放（仍在 fp32），最后 cast 回输入 dtype
+        return (x_fp32 * rms * self.weight).type_as(x)
 
 
 if __name__ == "__main__":

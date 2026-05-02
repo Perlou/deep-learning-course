@@ -24,7 +24,7 @@ AutoDL 上线工具链（preflight/launch/save）:    ████████�
 
 | 总计 | 测试 |
 |---|---|
-| 全部代码 / 工具链就绪 | **141 个 pytest 全过** |
+| 全部代码 / 工具链就绪 | **147 个 pytest 全过** |
 
 ---
 
@@ -44,6 +44,15 @@ AutoDL 上线工具链（preflight/launch/save）:    ████████�
 | **NaN 三层防御**（dataset 尾部截断 + loss safe-aggregate + trainer 守卫） | ✅ |
 | **chat.py truncation budget 边界 case**（max_new ≥ max_seq_len） | ✅ |
 | **load_checkpoint 友好的 shape mismatch 报错** | ✅ |
+
+### 🆕 2026-05-02 追加修复（AutoDL 上线前对比 minimind 发现）
+
+| 修复 | 文件 | 影响 |
+|---|---|---|
+| **DPOTrainer 忽略 `config.max_steps`** → 对齐 sft.py 的 `min(cfg_max, full_max)` 写法 | `src/training/dpo.py:81-89` | yaml 里写的 max_steps 之前完全失效（实测 yaml=200 → 实跑 4077 step），AutoDL 上跑全量 DPO 时无法 cap 总时长，会烧多余的钱 |
+| **RMSNorm 在 bf16 输入下输出退化为 fp32** → 内部强制 `x.float()` 计算 + `.type_as(x)` cast 回原 dtype（minimind 标准写法） | `src/model/normalization.py` | 旧实现因 weight 默认 fp32 广播提升，bf16 训练时 RMSNorm 之后所有张量退化为 fp32，破坏 autocast 收益；同时 `pow(2).mean(-1)` 在 bf16 下精度不稳，long context 易触发 loss 尖刺 |
+
+回归测试：5 个 RMSNorm dtype 契约测试（`tests/test_normalization.py`）+ 1 个 DPO max_steps 回归测试（`tests/test_training_edge_cases.py::test_dpo_trainer_respects_config_max_steps`），141 → 147 全绿。
 
 ---
 
